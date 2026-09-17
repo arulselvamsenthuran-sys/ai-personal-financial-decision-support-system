@@ -1,0 +1,47 @@
+# ==================================================
+# Git Ignore — Finance Support
+# ==================================================
+
+# ---- Environment & Secrets ----
+.env
+.env.local
+.env.*.local
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+
+# ---- Node / Frontend ----
+node_modules/
+frontend/dist/
+frontend/build/
+*.tsbuildinfo
+
+# ---- PostgreSQL Data (Docker volume) ----
+pgdata/
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---- Testing / Coverage ----
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ---- OS ----
+*.log

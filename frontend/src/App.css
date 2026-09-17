@@ -1,0 +1,436 @@
+/* ==================================================
+   Finance Support — Premium Dark Theme
+   ================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+/* ---- Design Tokens ---- */
+:root {
+  --font-family: "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Palette — deep navy + electric accents */
+  --color-bg: #0a0e1a;
+  --color-surface: #111827;
+  --color-surface-alt: #1a2235;
+  --color-border: rgba(255, 255, 255, 0.06);
+
+  --color-text: #e2e8f0;
+  --color-text-muted: #94a3b8;
+  --color-text-dim: #64748b;
+
+  --color-primary: #6366f1;
+  --color-primary-glow: rgba(99, 102, 241, 0.25);
+  --color-accent: #818cf8;
+  --color-accent-soft: rgba(129, 140, 248, 0.12);
+
+  --color-success: #34d399;
+  --color-danger: #f87171;
+  --color-warning: #fbbf24;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  --shadow-glow: 0 0 60px rgba(99, 102, 241, 0.08);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-family);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ---- App Shell ---- */
+.app {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Animated Background Particles ---- */
+.bg-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  animation: float 20s ease-in-out infinite;
+}
+
+.particle--1 {
+  width: 500px;
+  height: 500px;
+  background: var(--color-primary);
+  top: -10%;
+  right: -8%;
+  animation-delay: 0s;
+}
+
+.particle--2 {
+  width: 400px;
+  height: 400px;
+  background: #8b5cf6;
+  bottom: 5%;
+  left: -6%;
+  animation-delay: -7s;
+}
+
+.particle--3 {
+  width: 300px;
+  height: 300px;
+  background: #06b6d4;
+  top: 50%;
+  right: 25%;
+  animation-delay: -14s;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -40px) scale(1.05);
+  }
+  66% {
+    transform: translate(-20px, 25px) scale(0.95);
+  }
+}
+
+/* ---- Header ---- */
+.app-header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 2.5rem;
+  background: rgba(17, 24, 39, 0.6);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.logo__icon {
+  font-size: 1.5rem;
+  color: var(--color-accent);
+  animation: pulse-icon 3s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+.app-header__badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+}
+
+/* ---- Main Content ---- */
+.app-main {
+  position: relative;
+  z-index: 10;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3rem 2rem;
+  gap: 3rem;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---- Hero Section ---- */
+.hero {
+  text-align: center;
+  animation: fade-up 0.8s ease-out;
+}
+
+.hero__title {
+  font-size: 2.8rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--color-text);
+}
+
+.hero__title--accent {
+  background: linear-gradient(135deg, var(--color-accent), #a78bfa, #06b6d4);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero__subtitle {
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- Dashboard / Health Section ---- */
+.dashboard {
+  width: 100%;
+  animation: fade-up 0.8s ease-out 0.2s both;
+}
+
+/* ---- Health Status Component ---- */
+.health-status {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem 2rem;
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+}
+
+.health-status__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.health-status__header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.health-status__refresh {
+  font-family: var(--font-family);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.health-status__refresh:hover:not(:disabled) {
+  background: rgba(129, 140, 248, 0.2);
+  transform: translateY(-1px);
+}
+
+.health-status__refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.health-status__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* ---- Status Card ---- */
+.status-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: var(--transition);
+}
+
+.status-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.status-card__indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px currentColor;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 6px 0px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 12px 3px currentColor;
+  }
+}
+
+.status-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.status-card__label {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.status-card__value {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.status-card__detail {
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  font-family: "Courier New", monospace;
+  margin-top: 0.15rem;
+}
+
+/* ---- Stack Info Section ---- */
+.stack-info {
+  width: 100%;
+  text-align: center;
+  animation: fade-up 0.8s ease-out 0.4s both;
+}
+
+.stack-info h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: var(--color-text-muted);
+}
+
+.stack-info__grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.stack-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition: var(--transition);
+}
+
+.stack-chip:hover {
+  border-color: rgba(129, 140, 248, 0.3);
+  color: var(--color-text);
+  transform: translateY(-2px);
+}
+
+.stack-chip__icon {
+  font-size: 1rem;
+}
+
+/* ---- Footer ---- */
+.app-footer {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  padding: 1.5rem;
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 1rem 1.25rem;
+  }
+
+  .app-main {
+    padding: 2rem 1.25rem;
+    gap: 2rem;
+  }
+
+  .hero__title {
+    font-size: 1.8rem;
+  }
+
+  .health-status__cards {
+    grid-template-columns: 1fr;
+  }
+
+  .health-status {
+    padding: 1.25rem;
+  }
+}
