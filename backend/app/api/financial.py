@@ -4,10 +4,11 @@ from datetime import date, timedelta
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_user_account
+from app.core.ai_safety import check_ai_rate_limit
 from app.models.financial_account import FinancialAccount
 from app.models.financial_document import FinancialDocument
 from app.models.financial_event import FinancialEvent
@@ -791,18 +792,16 @@ def analyze_decision_support(
     tags=["financial"],
 )
 async def explain_decision_support(
-    request: DecisionExplainRequest,
+    request_data: DecisionExplainRequest,
+    req: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DecisionExplainResponse:
     """Evaluate a hypothetical financial scenario deterministically and explain it with AI.
 
-    This endpoint first runs the deterministic Phase 12 DecisionSupportEngine evaluation.
-    Then, it uses the configured LLM provider to translate the deterministic facts into
-    an explainable, validated natural-language narrative.
-
     **Engineering Invariants:**
     - Requires session authentication (`get_current_user`).
+    - Enforces AI rate limiting (`check_ai_rate_limit`).
     - Strictly scoped to the authenticated user (prevents IDOR).
     - Preserves strict currency isolation.
     - Entirely stateless & read-only.
@@ -811,16 +810,18 @@ async def explain_decision_support(
     - Does NOT provide personalized financial or investment advice.
     - The final decision always remains with the user.
     """
+    check_ai_rate_limit(request=req, user_id=current_user.id)
+
     dr = _resolve_date_range(
-        period=request.period,
-        start_date=request.start_date,
-        end_date=request.end_date,
+        period=request_data.period,
+        start_date=request_data.start_date,
+        end_date=request_data.end_date,
     )
 
     return await ai_explanation_service.explain(
         db=db,
         user_id=current_user.id,
-        request=request,
+        request=request_data,
         period_start=dr.start,
         period_end=dr.end,
     )
@@ -838,7 +839,8 @@ async def explain_decision_support(
     tags=["financial"],
 )
 async def chat_decision_support(
-    request: DecisionChatRequest,
+    request_data: DecisionChatRequest,
+    req: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DecisionChatResponse:
@@ -849,6 +851,7 @@ async def chat_decision_support(
 
     **Engineering Invariants:**
     - Requires session authentication (`get_current_user`).
+    - Enforces AI rate limiting (`check_ai_rate_limit`).
     - Strictly scoped to the authenticated user (prevents IDOR).
     - Backend controls all financial context supplied to Gemini.
     - Gemini does NOT directly query databases or financial tables.
@@ -856,18 +859,20 @@ async def chat_decision_support(
     - Deterministic result remains the source of truth.
     - Graceful fallback if LLM is unavailable.
     """
+    check_ai_rate_limit(request=req, user_id=current_user.id)
+
     dr = _resolve_date_range(
-        period=request.decision_context.period,
-        start_date=request.decision_context.start_date,
-        end_date=request.decision_context.end_date,
+        period=request_data.decision_context.period,
+        start_date=request_data.decision_context.start_date,
+        end_date=request_data.decision_context.end_date,
     )
 
     result = await ai_explanation_service.chat(
         db=db,
         user_id=current_user.id,
-        decision_context=request.decision_context,
-        question=request.question,
-        conversation_history=request.conversation_history,
+        decision_context=request_data.decision_context,
+        question=request_data.question,
+        conversation_history=request_data.conversation_history,
         period_start=dr.start,
         period_end=dr.end,
     )

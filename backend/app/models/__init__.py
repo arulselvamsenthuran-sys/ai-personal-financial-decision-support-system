@@ -4,6 +4,7 @@ All models inherit from app.db.base.Base and are exposed here for Alembic
 discovery and application usage.
 """
 
+from app.models.conversation import Conversation, ConversationMessage  # Phase 17
 from app.models.financial_account import FinancialAccount
 from app.models.financial_document import FinancialDocument
 from app.models.financial_event import FinancialEvent
@@ -29,4 +30,7 @@ __all__ = [
     "LedgerEntry",
     # Phase 10
     "FinancialInsight",
+    # Phase 17
+    "Conversation",
+    "ConversationMessage",
 ]

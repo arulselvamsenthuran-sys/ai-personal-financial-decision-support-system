@@ -9,6 +9,7 @@ import AccountsPage from "./components/AccountsPage";
 import TransactionsPage from "./components/TransactionsPage";
 import AnalyticsPage from "./components/AnalyticsPage";
 import DecisionSupportPage from "./components/DecisionSupportPage";
+import ConversationsPage from "./components/ConversationsPage";
 import "./App.css";
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +43,7 @@ const NAV_ITEMS = [
   { path: "/transactions",     label: "Transactions",      icon: "💳" },
   { path: "/analytics",        label: "Analytics",         icon: "📈" },
   { path: "/decision-support", label: "Decision Support",  icon: "🎯" },
+  { path: "/conversations",     label: "AI Conversations",  icon: "💬" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -131,6 +133,8 @@ function PageRouter() {
       return <AnalyticsPage />;
     case "/decision-support":
       return <DecisionSupportPage />;
+    case "/conversations":
+      return <ConversationsPage />;
     case "/system":
       return (
         <div className="page-content" id="page-system">

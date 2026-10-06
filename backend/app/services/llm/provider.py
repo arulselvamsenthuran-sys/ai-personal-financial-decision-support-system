@@ -98,7 +98,11 @@ class MockLLMProvider(BaseLLMProvider):
         if self.custom_response:
             return self.custom_response
 
-        # Default mock deterministic response payload
+        # Check if chat response is expected (plain text)
+        if "plain text" in system_prompt.lower():
+            return "Based on your verified financial records, the deterministic analysis evaluates the cash flow impact and liquidity status for this scenario."
+
+        # Default mock deterministic response payload for JSON explain requests
         mock_payload = {
             "summary": "This scenario evaluation demonstrates the financial impact based on your historical records.",
             "cash_flow_impact_narrative": "Historical baseline cash flow and projected scenario cash flow have been evaluated deterministically.",

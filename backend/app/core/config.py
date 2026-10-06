@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     facebook_redirect_uri: str = "http://localhost:5173/auth/callback/facebook"
     oauth_state_secret: str = "oauth-state-secret-key-change-in-prod"
 
-    # ---- LLM / AI Explanation Layer (Phase 13) ----
+    # ---- LLM / AI Explanation Layer (Phase 13 + Phase 16) ----
     # Provider: "gemini" (production/free-tier), "mock" (deterministic test provider), or "none" (disabled).
     llm_provider: str = "none"
     llm_api_key: str = ""
@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 30
     llm_max_tokens: int = 2048
     llm_temperature: float = 0.1  # Low temperature for factual consistency
+
+    # ---- AI Safety Layer Limits (Phase 16) ----
+    ai_max_input_tokens: int = 4000
+    ai_max_output_tokens: int = 2048
+    ai_max_tool_result_size: int = 8000
+    ai_max_document_context_size: int = 10000
+    ai_max_question_length: int = 1000
+    ai_max_chat_history_messages: int = 10
+    ai_max_tool_calls_per_request: int = 3
+    ai_rate_limit_per_minute: int = 10
 
     model_config = {
         "env_file": (".env", "../.env"),
