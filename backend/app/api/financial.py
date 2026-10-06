@@ -35,6 +35,7 @@ from app.schemas.financial import (
     LedgerBalanceResponse,
     LedgerEntryResponse,
     ReplaySummaryResponse,
+    TransactionCreate,
     TransactionResponse,
 )
 from app.schemas.decision import (  # Phase 12
@@ -44,6 +45,10 @@ from app.schemas.decision import (  # Phase 12
 from app.schemas.ai_explanation import (  # Phase 13
     DecisionExplainRequest,
     DecisionExplainResponse,
+)
+from app.schemas.chat import (  # Phase 15
+    DecisionChatRequest,
+    DecisionChatResponse,
 )
 from app.schemas.scenario import (  # Phase 11
     ScenarioSimulateRequest,
@@ -167,6 +172,71 @@ def list_transactions(
             .all()
         )
     return transactions
+
+
+@router.post(
+    "/transactions",
+    response_model=TransactionResponse,
+    status_code=201,
+    summary="[Phase 15] Create a new transaction for the authenticated user",
+)
+def create_transaction(
+    request: TransactionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Transaction:
+    """Create a transaction under the authenticated user's account.
+
+    Security invariants:
+    - user_id is derived from the session (never from the request body).
+    - Account ownership is enforced: the target financial_account_id must
+      belong to the authenticated user.
+    - Currency consistency: the transaction currency must match the target
+      account's currency.
+    - All financial calculations downstream remain the backend's responsibility.
+    """
+    # 1. Verify account ownership (raises 404 if not owned by current_user)
+    account = get_user_account(
+        account_id=request.financial_account_id,
+        current_user=current_user,
+        db=db,
+    )
+
+    # 2. Enforce currency consistency with account
+    if request.currency.upper() != account.currency.upper():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Currency mismatch: transaction currency '{request.currency}' "
+                f"does not match account currency '{account.currency}'."
+            ),
+        )
+
+    # 3. Create the transaction — user_id from session, NOT from request
+    txn = Transaction(
+        user_id=current_user.id,
+        financial_account_id=request.financial_account_id,
+        transaction_date=request.transaction_date,
+        posted_at=request.posted_at,
+        amount=request.amount,
+        currency=request.currency.upper(),
+        transaction_type=request.transaction_type,
+        merchant=request.merchant,
+        description=request.description,
+        reference=request.reference,
+        category=request.category,
+        subcategory=request.subcategory,
+        status=request.status,
+        source="manual",
+        notes=request.notes,
+        metadata_json=request.metadata_json,
+    )
+
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    return txn
 
 
 @router.get(
@@ -753,5 +823,58 @@ async def explain_decision_support(
         request=request,
         period_start=dr.start,
         period_end=dr.end,
+    )
+
+
+# ============================================================================
+# Phase 15 – Conversational AI Chat
+# ============================================================================
+
+@router.post(
+    "/decision-support/chat",
+    response_model=DecisionChatResponse,
+    status_code=200,
+    summary="[Phase 15] Chat about a financial decision analysis",
+    tags=["financial"],
+)
+async def chat_decision_support(
+    request: DecisionChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DecisionChatResponse:
+    """Handle a conversational follow-up question about a decision analysis.
+
+    The chat is specifically for understanding the current financial decision.
+    It is NOT a general-purpose chatbot.
+
+    **Engineering Invariants:**
+    - Requires session authentication (`get_current_user`).
+    - Strictly scoped to the authenticated user (prevents IDOR).
+    - Backend controls all financial context supplied to Gemini.
+    - Gemini does NOT directly query databases or financial tables.
+    - Gemini does NOT execute financial actions.
+    - Deterministic result remains the source of truth.
+    - Graceful fallback if LLM is unavailable.
+    """
+    dr = _resolve_date_range(
+        period=request.decision_context.period,
+        start_date=request.decision_context.start_date,
+        end_date=request.decision_context.end_date,
+    )
+
+    result = await ai_explanation_service.chat(
+        db=db,
+        user_id=current_user.id,
+        decision_context=request.decision_context,
+        question=request.question,
+        conversation_history=request.conversation_history,
+        period_start=dr.start,
+        period_end=dr.end,
+    )
+
+    return DecisionChatResponse(
+        answer=result["answer"],
+        ai_status=result["ai_status"],
+        ai_status_message=result["ai_status_message"],
     )
 

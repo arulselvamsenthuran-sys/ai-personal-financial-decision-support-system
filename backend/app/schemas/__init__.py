@@ -15,6 +15,11 @@ from app.schemas.ai_explanation import (
     DecisionExplainRequest,
     DecisionExplainResponse,
 )
+from app.schemas.chat import (
+    ChatMessage,
+    DecisionChatRequest,
+    DecisionChatResponse,
+)
 from app.schemas.decision import (
     CashFlowProjection,
     ComponentAvailabilityStatus,
@@ -58,4 +63,8 @@ __all__ = [
     "AIExplanationStatus",
     "DecisionExplainRequest",
     "DecisionExplainResponse",
+    "ChatMessage",
+    "DecisionChatRequest",
+    "DecisionChatResponse",
 ]
+

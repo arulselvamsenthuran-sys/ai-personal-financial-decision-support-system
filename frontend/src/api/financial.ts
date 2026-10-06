@@ -1,5 +1,5 @@
 /**
- * Financial API client — Phase 14.
+ * Financial API client — Phase 14 + Phase 15.
  *
  * All calls use `credentials: "include"` for HttpOnly session cookies.
  * The backend is the sole source of truth for all financial data.
@@ -85,6 +85,32 @@ export interface Transaction {
 export function fetchTransactions(accountId?: string): Promise<Transaction[]> {
   const qs = accountId ? `?account_id=${accountId}` : "";
   return apiFetch(`/api/financial/transactions${qs}`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Transaction Create (Phase 15)                                      */
+/* ------------------------------------------------------------------ */
+
+export interface TransactionCreateRequest {
+  financial_account_id: string;
+  transaction_date: string;
+  amount: number;
+  currency: string;
+  transaction_type: string;
+  merchant?: string;
+  description?: string;
+  category?: string;
+  subcategory?: string;
+}
+
+export function createTransaction(
+  req: TransactionCreateRequest,
+): Promise<Transaction> {
+  return apiFetch("/api/financial/transactions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -359,3 +385,36 @@ export function explainDecision(
     body: JSON.stringify(req),
   });
 }
+
+/* ------------------------------------------------------------------ */
+/* Decision Support — Chat (Phase 15 / Conversational AI)             */
+/* ------------------------------------------------------------------ */
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface DecisionChatRequest {
+  decision_context: DecisionAnalyzeRequest;
+  question: string;
+  conversation_history: ChatMessage[];
+}
+
+export interface DecisionChatResponse {
+  answer: string;
+  ai_status: string;
+  ai_status_message: string;
+  disclaimer: string;
+}
+
+export function chatDecisionSupport(
+  req: DecisionChatRequest,
+): Promise<DecisionChatResponse> {
+  return apiFetch("/api/financial/decision-support/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+

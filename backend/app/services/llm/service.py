@@ -307,6 +307,153 @@ class AIExplanationService:
                 ai_status_message=f"Unexpected error generating AI explanation: {e}",
             )
 
+    # ------------------------------------------------------------------
+    # Phase 15 – Conversational Chat
+    # ------------------------------------------------------------------
+
+    CHAT_SYSTEM_PROMPT = (
+        "You are a specialized Financial Explanation Assistant for a personal financial decision support system.\n"
+        "You are answering a follow-up question about a SPECIFIC deterministic financial analysis result.\n\n"
+        "STRICT RULES:\n"
+        "1. All numbers, percentages, balances, and risk triggers in the context are FINAL and AUTHORITATIVE.\n"
+        "2. You MUST NOT invent, calculate, round differently, or alter any numeric facts.\n"
+        "3. You MUST NOT give financial or investment advice.\n"
+        "4. You MUST NOT execute financial actions (no payments, transfers, purchases, investments).\n"
+        "5. If liquidity data is 'unavailable' or 'partial', you MUST state that — do NOT assume zero.\n"
+        "6. Keep answers concise, factual, and focused on the deterministic result.\n"
+        "7. If the user asks to test a different scenario, tell them to use Decision Support with new parameters.\n"
+        "8. Respond in plain text (not JSON). Be clear and helpful.\n"
+        "9. The final financial decision always remains with the user.\n"
+    )
+
+    def _build_chat_prompt(
+        self,
+        analysis: DecisionAnalyzeResponse,
+        question: str,
+        conversation_history: Optional[List] = None,
+    ) -> str:
+        """Build the prompt for conversational chat about a decision result."""
+        # Reuse the structured context builder
+        context_prompt = self._build_user_prompt(analysis)
+
+        # Build conversation history section (limited)
+        history_text = ""
+        if conversation_history:
+            # Limit to last 10 messages to prevent unbounded token growth
+            recent = conversation_history[-10:]
+            history_lines = []
+            for msg in recent:
+                role_label = "User" if msg.role == "user" else "Assistant"
+                # Truncate individual messages to prevent abuse
+                content = str(msg.content)[:500]
+                history_lines.append(f"{role_label}: {content}")
+            history_text = "\n\nPREVIOUS CONVERSATION:\n" + "\n".join(history_lines)
+
+        sanitized_question = _sanitize_user_text(question)
+
+        return (
+            f"{context_prompt}"
+            f"{history_text}\n\n"
+            f"USER QUESTION: {sanitized_question}\n\n"
+            f"Please answer the user's question based ONLY on the deterministic evaluation facts above. "
+            f"Be concise and factual. Do NOT invent numbers or give financial advice."
+        )
+
+    async def chat(
+        self,
+        db: Session,
+        user_id: uuid.UUID,
+        decision_context: "DecisionAnalyzeRequest",
+        question: str,
+        conversation_history: Optional[List] = None,
+        period_start: Optional[date] = None,
+        period_end: Optional[date] = None,
+        provider_override: Optional[BaseLLMProvider] = None,
+    ) -> Dict[str, Any]:
+        """Handle a conversational follow-up question about a decision analysis.
+
+        1. Run the deterministic analysis (same as explain)
+        2. Build context with conversation history
+        3. Send to LLM for a conversational answer
+        4. Fall back gracefully on any LLM failure
+        """
+        from app.schemas.decision import DecisionAnalyzeRequest as DAR
+
+        # 1. Run deterministic analysis
+        analyze_req = DAR(
+            scenario_type=decision_context.scenario_type,
+            amount=decision_context.amount,
+            currency=decision_context.currency,
+            description=decision_context.description,
+            period=decision_context.period,
+            start_date=decision_context.start_date,
+            end_date=decision_context.end_date,
+        )
+
+        deterministic_result = decision_support_engine.analyze(
+            db=db,
+            user_id=user_id,
+            request=analyze_req,
+            period_start=period_start,
+            period_end=period_end,
+        )
+
+        # 2. Check provider availability
+        provider = self._get_provider(override=provider_override)
+        if provider is None:
+            return {
+                "answer": "AI chat is currently disabled. Your deterministic financial decision result is still available.",
+                "ai_status": "fallback_disabled",
+                "ai_status_message": "AI chat is disabled or no LLM provider configured.",
+            }
+
+        # 3. Build prompt and generate
+        chat_prompt = self._build_chat_prompt(
+            analysis=deterministic_result,
+            question=question,
+            conversation_history=conversation_history,
+        )
+
+        try:
+            raw_output = await provider.generate(
+                prompt=chat_prompt,
+                system_prompt=self.CHAT_SYSTEM_PROMPT,
+            )
+
+            # For chat, we expect plain text, not JSON
+            answer = raw_output.strip()
+            if not answer:
+                answer = "I was unable to generate a response. Your deterministic financial decision result is still available."
+
+            return {
+                "answer": answer,
+                "ai_status": "success",
+                "ai_status_message": "AI chat response generated successfully.",
+            }
+
+        except LLMTimeoutError as e:
+            logger.warning("AI chat timed out: %s", e)
+            return {
+                "answer": "AI is temporarily unavailable due to a timeout. Your deterministic financial decision result is still available. Please try again later.",
+                "ai_status": "fallback_timeout",
+                "ai_status_message": f"AI chat timed out: {e}",
+            }
+        except LLMProviderError as e:
+            logger.warning("AI chat provider error: %s", e)
+            return {
+                "answer": "AI is temporarily unavailable. Your deterministic financial decision result is still available. Please try again later.",
+                "ai_status": "fallback_provider_error",
+                "ai_status_message": f"AI chat provider error: {e}",
+            }
+        except Exception as e:
+            logger.error("Unexpected error during AI chat: %s", e)
+            return {
+                "answer": "AI is temporarily unavailable. Your deterministic financial decision result is still available. Please try again later.",
+                "ai_status": "fallback_provider_error",
+                "ai_status_message": f"Unexpected error during AI chat: {e}",
+            }
+
 
 # Module-level singleton
 ai_explanation_service = AIExplanationService()
+

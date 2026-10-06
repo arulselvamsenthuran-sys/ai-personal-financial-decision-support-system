@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ----------------------------------------------------------------------------
@@ -49,24 +49,44 @@ class FinancialAccountResponse(BaseModel):
 # ----------------------------------------------------------------------------
 # Transaction Schemas
 # ----------------------------------------------------------------------------
+VALID_TRANSACTION_TYPES = frozenset({"credit", "debit"})
+
+
 class TransactionCreate(BaseModel):
     """Request schema for creating a transaction."""
 
     financial_account_id: uuid.UUID = Field(..., description="Target financial account ID")
     transaction_date: date = Field(..., description="Date transaction occurred")
     posted_at: Optional[datetime] = Field(None, description="Timestamp transaction posted")
-    amount: Decimal = Field(..., description="Transaction monetary amount")
+    amount: Decimal = Field(..., gt=Decimal("0"), description="Transaction monetary amount (must be > 0)")
     currency: str = Field("USD", min_length=3, max_length=3, description="ISO 4217 currency code")
-    transaction_type: str = Field(..., max_length=20, description="Transaction type e.g., debit, credit")
+    transaction_type: str = Field(..., max_length=20, description="Transaction type: 'credit' (income) or 'debit' (expense)")
     merchant: Optional[str] = Field(None, max_length=255, description="Merchant name")
-    description: Optional[str] = Field(None, description="Transaction description")
+    description: Optional[str] = Field(None, max_length=1000, description="Transaction description")
     reference: Optional[str] = Field(None, max_length=100, description="Reference code")
     category: Optional[str] = Field(None, max_length=100, description="Transaction category")
     subcategory: Optional[str] = Field(None, max_length=100, description="Transaction subcategory")
     status: str = Field("posted", max_length=50, description="Transaction status e.g., posted, pending")
     source: str = Field("manual", max_length=50, description="Source of transaction e.g., manual, csv_import, pdf_import")
-    notes: Optional[str] = Field(None, description="Notes")
+    notes: Optional[str] = Field(None, max_length=2000, description="Notes")
     metadata_json: Optional[Dict[str, Any]] = Field(None, description="Import metadata")
+
+    @model_validator(mode="after")
+    def validate_transaction(self) -> "TransactionCreate":
+        """Cross-field validation for transaction creation."""
+        # Normalize currency
+        self.currency = self.currency.upper().strip()
+        if not self.currency.isalpha():
+            raise ValueError(f"Currency code '{self.currency}' must contain only alphabetic characters.")
+
+        # Validate transaction type
+        if self.transaction_type not in VALID_TRANSACTION_TYPES:
+            raise ValueError(
+                f"Invalid transaction_type '{self.transaction_type}'. "
+                f"Valid values: {', '.join(sorted(VALID_TRANSACTION_TYPES))}."
+            )
+
+        return self
 
 
 class TransactionResponse(BaseModel):

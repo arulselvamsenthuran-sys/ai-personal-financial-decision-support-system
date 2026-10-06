@@ -2,8 +2,11 @@ import { useState } from "react";
 import {
   analyzeDecision,
   explainDecision,
+  chatDecisionSupport,
   type DecisionAnalyzeResponse,
   type AIExplanationResult,
+  type ChatMessage,
+  type DecisionChatRequest,
 } from "../api/financial";
 
 /* ------------------------------------------------------------------ */
@@ -23,6 +26,14 @@ const PERIODS = [
   { value: "last_3_months", label: "Last 3 Months" },
   { value: "last_6_months", label: "Last 6 Months" },
   { value: "last_12_months", label: "Last 12 Months" },
+];
+
+const EXAMPLE_QUESTIONS = [
+  "Explain this result in simple words.",
+  "Why is this purchase considered high risk?",
+  "Why did my savings rate change?",
+  "Is my liquidity sufficient for this decision?",
+  "Which risk indicator is the most critical?",
 ];
 
 function fmt(v: string | null | undefined, currency?: string): string {
@@ -64,6 +75,12 @@ export default function DecisionSupportPage() {
   const [aiStatusMessage, setAiStatusMessage] = useState<string | null>(null);
   const [aiDisclaimer, setAiDisclaimer] = useState<string | null>(null);
 
+  /* Chat state */
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +95,8 @@ export default function DecisionSupportPage() {
     setAiStatus(null);
     setAiStatusMessage(null);
     setAiDisclaimer(null);
+    setChatMessages([]);
+    setChatError(null);
     try {
       const res = await analyzeDecision({
         scenario_type: scenarioType,
@@ -119,6 +138,49 @@ export default function DecisionSupportPage() {
     } finally {
       setAiLoading(false);
     }
+  }
+
+  async function sendQuestion(questionText: string) {
+    if (!questionText.trim() || !result || chatLoading) return;
+
+    const q = questionText.trim();
+    const updatedHistory: ChatMessage[] = [...chatMessages, { role: "user", content: q }];
+    setChatMessages(updatedHistory);
+    setChatInput("");
+    setChatLoading(true);
+    setChatError(null);
+
+    const payload: DecisionChatRequest = {
+      decision_context: {
+        scenario_type: scenarioType,
+        amount: Number(amount),
+        currency: currency.toUpperCase(),
+        description: description || undefined,
+        period,
+      },
+      question: q,
+      conversation_history: chatMessages,
+    };
+
+    try {
+      const res = await chatDecisionSupport(payload);
+      setChatMessages([...updatedHistory, { role: "assistant", content: res.answer }]);
+    } catch (err: any) {
+      const fallbackMsg =
+        err.message || "AI chat is temporarily unavailable. Your deterministic financial decision result remains valid.";
+      setChatMessages([
+        ...updatedHistory,
+        { role: "assistant", content: `⚠️ ${fallbackMsg}` },
+      ]);
+      setChatError(fallbackMsg);
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  function handleChatSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    sendQuestion(chatInput);
   }
 
   return (
@@ -213,11 +275,112 @@ export default function DecisionSupportPage() {
         </section>
       )}
 
+      {/* ── Conversational AI Chat (Phase 15) ── */}
+      {result && (
+        <section className="card" id="decision-chat" style={{ marginTop: "1.5rem" }}>
+          <h2 className="card__title">💬 Ask About This Decision</h2>
+          <p className="text-dim" style={{ fontSize: "0.85rem", marginBottom: "1rem" }}>
+            Ask follow-up questions to understand the risks, cash flow impacts, or tradeoffs of this decision.
+          </p>
+
+          {/* Quick example prompt chips */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
+            {EXAMPLE_QUESTIONS.map((q, idx) => (
+              <button
+                key={idx}
+                type="button"
+                className="btn btn--secondary"
+                style={{ fontSize: "0.8rem", padding: "0.3rem 0.6rem" }}
+                disabled={chatLoading}
+                onClick={() => sendQuestion(q)}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+
+          {/* Conversation history */}
+          {chatMessages.length > 0 && (
+            <div
+              className="chat-history"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.75rem",
+                marginBottom: "1rem",
+                maxHeight: "400px",
+                overflowY: "auto",
+                paddingRight: "0.5rem",
+              }}
+            >
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+                    maxWidth: "85%",
+                    padding: "0.75rem 1rem",
+                    borderRadius: "8px",
+                    backgroundColor: msg.role === "user" ? "var(--color-primary, #3b82f6)" : "var(--color-bg-card-alt, #1f2937)",
+                    color: msg.role === "user" ? "#ffffff" : "var(--color-text, #f3f4f6)",
+                    fontSize: "0.9rem",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  <div style={{ fontSize: "0.75rem", opacity: 0.7, marginBottom: "0.25rem", fontWeight: 600 }}>
+                    {msg.role === "user" ? "You" : "AI Assistant"}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ alignSelf: "flex-start", padding: "0.5rem 1rem", fontSize: "0.85rem", color: "#9ca3af" }}>
+                  <span className="btn-spinner" /> Thinking…
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Chat input form */}
+          <form onSubmit={handleChatSubmit} style={{ display: "flex", gap: "0.5rem" }}>
+            <input
+              type="text"
+              className="form-input"
+              style={{ flex: 1 }}
+              placeholder="Ask a question about this financial decision…"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              disabled={chatLoading}
+              id="chat-input-field"
+            />
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={chatLoading || !chatInput.trim()}
+              id="btn-send-chat"
+            >
+              {chatLoading ? "Sending…" : "Ask"}
+            </button>
+          </form>
+
+          {chatError && (
+            <p className="text-dim" style={{ fontSize: "0.78rem", color: "#f87171", marginTop: "0.5rem" }}>
+              {chatError}
+            </p>
+          )}
+
+          <p className="disclaimer" style={{ marginTop: "0.75rem" }}>
+            This AI chat translates deterministic mathematical calculations into natural language. It does not provide financial advice or perform automated transactions. The backend deterministic engine remains the sole source of truth.
+          </p>
+        </section>
+      )}
+
       {/* ── Deterministic Result ── */}
       {result && <DecisionResult result={result} />}
     </div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Decision Result Display                                            */
