@@ -158,6 +158,7 @@ def test_6_transaction_relationship(db_session: Session) -> None:
     db_session.flush()
 
     tx = Transaction(
+        user_id=user.id,
         financial_account_id=account.id,
         transaction_date=date(2026, 9, 17),
         amount=Decimal("45.5000"),
@@ -166,12 +167,15 @@ def test_6_transaction_relationship(db_session: Session) -> None:
         merchant="Grocery Store",
         description="Weekly grocery shopping",
         category="Groceries",
+        status="posted",
+        source="manual",
     )
     db_session.add(tx)
     db_session.flush()
 
     assert tx.id is not None
     assert tx.financial_account_id == account.id
+    assert tx.user_id == user.id
     assert len(account.transactions) == 1
     assert account.transactions[0].merchant == "Grocery Store"
     assert tx.financial_account.name == "Credit Card"
@@ -195,6 +199,7 @@ def test_7_decimal_money(db_session: Session) -> None:
     # Precise financial amount: 100.1000
     exact_amount = Decimal("100.1000")
     tx = Transaction(
+        user_id=user.id,
         financial_account_id=account.id,
         transaction_date=date.today(),
         amount=exact_amount,
@@ -296,10 +301,12 @@ def test_10_document_relationship(db_session: Session) -> None:
     doc_with_account = FinancialDocument(
         user_id=user.id,
         financial_account_id=account.id,
-        file_name="statement_sept_2026.pdf",
-        file_type="application/pdf",
+        original_filename="statement_sept_2026.pdf",
+        document_type="bank_statement",
+        mime_type="application/pdf",
         file_size=1024 * 250,
-        storage_path="/uploads/statements/statement_sept_2026.pdf",
+        file_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        storage_reference="/uploads/statements/statement_sept_2026.pdf",
         processing_status="uploaded",
     )
     db_session.add(doc_with_account)
@@ -314,10 +321,11 @@ def test_10_document_relationship(db_session: Session) -> None:
     doc_without_account = FinancialDocument(
         user_id=user.id,
         financial_account_id=None,
-        file_name="receipt_misc.pdf",
-        file_type="application/pdf",
+        original_filename="receipt_misc.pdf",
+        document_type="pdf_statement",
+        mime_type="application/pdf",
         file_size=51200,
-        storage_path="/uploads/receipts/receipt_misc.pdf",
+        storage_reference="/uploads/receipts/receipt_misc.pdf",
         processing_status="uploaded",
     )
     db_session.add(doc_without_account)
@@ -328,3 +336,58 @@ def test_10_document_relationship(db_session: Session) -> None:
     assert doc_without_account.financial_account is None
     assert doc_without_account.user.id == user.id
     assert len(user.financial_documents) == 2
+
+
+def test_11_phase_6_extended_fields(db_session: Session) -> None:
+    """Test 11: Verify Phase 6 specific fields: masked identifiers, JSONB metadata, subcategories, status."""
+    user = User(email=f"phase6_{uuid.uuid4().hex[:8]}@example.com")
+    db_session.add(user)
+    db_session.flush()
+
+    account = FinancialAccount(
+        user_id=user.id,
+        name="Secret Savings",
+        account_type="savings",
+        institution_name="Global Bank",
+        account_identifier_masked="****9876",
+        currency="EUR",
+        opening_balance=Decimal("5000.0000"),
+        notes="Emergency fund",
+        metadata_json={"branch_code": "GB123", "is_primary": True},
+    )
+    db_session.add(account)
+    db_session.flush()
+
+    tx = Transaction(
+        user_id=user.id,
+        financial_account_id=account.id,
+        transaction_date=date(2026, 9, 18),
+        posted_at=datetime.now(timezone.utc),
+        amount=Decimal("12.9900"),
+        currency="EUR",
+        transaction_type="debit",
+        merchant="Streaming Service",
+        description="Monthly subscription",
+        category="Entertainment",
+        subcategory="Subscription",
+        status="posted",
+        source="csv_import",
+        notes="Auto-renewed",
+        metadata_json={"raw_row": 42},
+    )
+    db_session.add(tx)
+    db_session.flush()
+
+    db_session.expire(account)
+    db_session.expire(tx)
+
+    reloaded_account = db_session.get(FinancialAccount, account.id)
+    assert reloaded_account.account_identifier_masked == "****9876"
+    assert reloaded_account.opening_balance == Decimal("5000.0000")
+    assert reloaded_account.metadata_json == {"branch_code": "GB123", "is_primary": True}
+
+    reloaded_tx = db_session.get(Transaction, tx.id)
+    assert reloaded_tx.subcategory == "Subscription"
+    assert reloaded_tx.source == "csv_import"
+    assert reloaded_tx.metadata_json == {"raw_row": 42}
+

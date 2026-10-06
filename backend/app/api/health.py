@@ -25,7 +25,7 @@ async def health() -> HealthResponse:
     summary="Database connectivity check",
     description="Verifies that the backend can reach PostgreSQL.",
 )
-async def health_db() -> DBHealthResponse:
+def health_db() -> DBHealthResponse:
     """Check database connectivity via SELECT 1."""
     connected = check_db_connection()
     if connected:

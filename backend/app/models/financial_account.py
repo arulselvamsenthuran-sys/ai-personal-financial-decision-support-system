@@ -1,10 +1,12 @@
 """Financial account ORM model."""
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, List, Optional
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,6 +21,9 @@ class FinancialAccount(Base):
     """Financial account owned by a user."""
 
     __tablename__ = "financial_accounts"
+    __table_args__ = (
+        UniqueConstraint("id", "user_id", name="uq_financial_account_id_user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -32,9 +37,15 @@ class FinancialAccount(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     account_type: Mapped[str] = mapped_column(String(50), nullable=False)
     institution_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    account_identifier_masked: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     currency: Mapped[str] = mapped_column(
         String(3), default="USD", server_default="USD", nullable=False
     )
+    opening_balance: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=18, scale=4), nullable=True
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )

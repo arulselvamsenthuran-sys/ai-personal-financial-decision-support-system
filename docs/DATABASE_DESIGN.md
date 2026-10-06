@@ -1,4 +1,4 @@
-# Database Architecture & Design (Phase 2)
+# Database Architecture & Design (Phase 6)
 
 AI-Powered Personal Financial Decision Support System  
 PostgreSQL 16 · SQLAlchemy 2.0 · Alembic
@@ -31,12 +31,12 @@ The database architecture is designed to support a deterministic personal financ
 
 ### Why PostgreSQL?
 - **Transactional Integrity (ACID)**: Absolute consistency is required for financial balances and transaction ledgers.
-- **Rich Data Types**: Native support for `UUID`, high-precision `NUMERIC`, timezone-aware `TIMESTAMPTZ`, and indexed structured metadata.
+- **Rich Data Types**: Native support for `UUID`, high-precision `NUMERIC`, timezone-aware `TIMESTAMPTZ`, `JSONB`, and indexed structured metadata.
 - **Robust Constraint Enforcement**: Enforces referential integrity, compound unique constraints, and foreign key cascades at the database engine level.
 
 ### Why SQLAlchemy 2.0?
 - **Type-Safe Declarative Mapping**: Modern SQLAlchemy 2.0 `Mapped` and `mapped_column` type annotations integrate cleanly with Python type checkers and IDEs.
-- **Separation of Concerns**: Modular models mapped across dedicated files (`user.py`, `profile.py`, `session.py`, `financial_account.py`, `transaction.py`, etc.).
+- **Separation of Concerns**: Modular models mapped across dedicated files (`user.py`, `profile.py`, `session.py`, `financial_account.py`, `transaction.py`, `financial_document.py`).
 - **Query Precision & Security**: Parameterised queries by default protect against SQL injection vulnerabilities.
 
 ### Why Alembic?
@@ -53,6 +53,7 @@ erDiagram
     USERS ||--o{ SESSIONS : "has active sessions (1:N)"
     USERS ||--o{ OAUTH_ACCOUNTS : "links external accounts (1:N)"
     USERS ||--o{ FINANCIAL_ACCOUNTS : "owns (1:N)"
+    USERS ||--o{ TRANSACTIONS : "owns (1:N)"
     FINANCIAL_ACCOUNTS ||--o{ TRANSACTIONS : "records ledger (1:N)"
     USERS ||--o{ FINANCIAL_DOCUMENTS : "uploads (1:N)"
     FINANCIAL_ACCOUNTS ||--o{ FINANCIAL_DOCUMENTS : "categorizes (optional 1:N)"
@@ -101,16 +102,22 @@ erDiagram
         string name
         string account_type
         string institution_name
+        string account_identifier_masked
         string currency
+        numeric opening_balance
         boolean is_active
+        text notes
+        jsonb metadata_json
         timestamp created_at
         timestamp updated_at
     }
 
     TRANSACTIONS {
         uuid id PK
+        uuid user_id FK
         uuid financial_account_id FK
         date transaction_date
+        timestamp posted_at
         numeric amount
         string currency
         string transaction_type
@@ -118,6 +125,11 @@ erDiagram
         text description
         string reference
         string category
+        string subcategory
+        string status
+        string source
+        text notes
+        jsonb metadata_json
         timestamp created_at
         timestamp updated_at
     }
@@ -126,13 +138,21 @@ erDiagram
         uuid id PK
         uuid user_id FK
         uuid financial_account_id FK
-        string file_name
-        string file_type
+        string original_filename
+        string document_type
+        string mime_type
         bigint file_size
-        string storage_path
+        string file_hash
+        string storage_reference
         string processing_status
+        text processing_error
+        date statement_start_date
+        date statement_end_date
+        jsonb metadata_json
         timestamp uploaded_at
         timestamp processed_at
+        timestamp created_at
+        timestamp updated_at
     }
 ```
 
@@ -187,41 +207,61 @@ erDiagram
   - `id` (`UUID`, PK): Account ID.
   - `user_id` (`UUID`, NOT NULL, INDEX, FK → `users.id` `ON DELETE CASCADE`): Account owner.
   - `name` (`VARCHAR(100)`, NOT NULL): Friendly account label (e.g. "Chase Freedom Flex").
-  - `account_type` (`VARCHAR(50)`, NOT NULL): Extensible type (`bank`, `savings`, `credit_card`, `cash`, `loan`, `investment`, `other`).
+  - `account_type` (`VARCHAR(50)`, NOT NULL): Extensible type (`bank`, `savings`, `credit_card`, `cash`, `investment`, `other`).
   - `institution_name` (`VARCHAR(100)`, NULLABLE): Financial institution (e.g. "Vanguard", "Barclays").
-  - `currency` (`VARCHAR(3)`, NOT NULL, default `'USD'`): Native currency for the account.
+  - `account_identifier_masked` (`VARCHAR(50)`, NULLABLE): Safe masked identifier (e.g. `****1234`). Full account numbers are NEVER stored.
+  - `currency` (`VARCHAR(3)`, NOT NULL, default `'USD'`): Native currency for the account (ISO 4217).
+  - `opening_balance` (`NUMERIC(18, 4)`, NULLABLE): Baseline opening balance if provided.
   - `is_active` (`BOOLEAN`, NOT NULL, default `true`).
+  - `notes` (`TEXT`, NULLABLE): User notes.
+  - `metadata_json` (`JSONB`, NULLABLE): Extensible metadata storage for provider attributes.
   - `created_at` / `updated_at` (`TIMESTAMPTZ`, NOT NULL, default `now()`).
 
 ### 6. `transactions`
-- **Purpose**: Normalized financial ledger records.
+- **Purpose**: Normalized financial ledger records. Serves as the authoritative source of truth for financial history and balance derivation.
 - **Columns**:
   - `id` (`UUID`, PK): Transaction ID.
+  - `user_id` (`UUID`, NOT NULL, INDEX, FK → `users.id` `ON DELETE CASCADE`): Owning user for explicit ownership queries and performance.
   - `financial_account_id` (`UUID`, NOT NULL, INDEX, FK → `financial_accounts.id` `ON DELETE CASCADE`): Associated account.
-  - `transaction_date` (`DATE`, NOT NULL, INDEX): Value or posting date.
-  - `amount` (`NUMERIC(18, 4)`, NOT NULL): Exact financial decimal value.
-  - `currency` (`VARCHAR(3)`, NOT NULL): Original transaction currency.
-  - `transaction_type` (`VARCHAR(20)`, NOT NULL): Type classification (`debit`, `credit`, `transfer`).
+  - `transaction_date` (`DATE`, NOT NULL, INDEX): Value or occurrence date.
+  - `posted_at` (`TIMESTAMPTZ`, NULLABLE): Timestamp when transaction posted to bank statement.
+  - `amount` (`NUMERIC(18, 4)`, NOT NULL): Exact financial decimal value (positive for credit/debit depending on type).
+  - `currency` (`VARCHAR(3)`, NOT NULL): Original transaction currency (ISO 4217). Exchange rate conversions are NOT performed silently.
+  - `transaction_type` (`VARCHAR(20)`, NOT NULL): Extensible type (`debit`, `credit`, `transfer`).
   - `merchant` (`VARCHAR(255)`, NULLABLE): Counterparty name.
   - `description` (`TEXT`, NULLABLE): Full statement description or memo.
   - `reference` (`VARCHAR(100)`, NULLABLE): Statement reference or check number.
-  - `category` (`VARCHAR(100)`, NULLABLE): Categorization tag (initially nullable).
+  - `category` (`VARCHAR(100)`, NULLABLE): Primary category tag.
+  - `subcategory` (`VARCHAR(100)`, NULLABLE): Detailed subcategory tag.
+  - `status` (`VARCHAR(50)`, NOT NULL, default `'posted'`): State (`posted`, `pending`, `cleared`).
+  - `source` (`VARCHAR(50)`, NOT NULL, default `'manual'`): Origin (`manual`, `csv_import`, `pdf_import`, `bank_import`, `system`).
+  - `notes` (`TEXT`, NULLABLE): User notes.
+  - `metadata_json` (`JSONB`, NULLABLE): Raw import payload metadata.
   - `created_at` / `updated_at` (`TIMESTAMPTZ`, NOT NULL, default `now()`).
-  - **Composite Index**: `ix_transactions_account_date` on `(financial_account_id, transaction_date)`.
+  - **Composite Indexes**: 
+    - `ix_transactions_account_date` on `(financial_account_id, transaction_date)`
+    - `ix_transactions_user_date` on `(user_id, transaction_date)`
 
 ### 7. `financial_documents`
-- **Purpose**: Metadata and state tracking for user-uploaded statements and financial receipts (PDF, CSV, OFX).
+- **Purpose**: Metadata and state tracking for user-uploaded statements and financial receipts (PDF, CSV, OFX). Stores storage references only (no raw binary in Postgres).
 - **Columns**:
   - `id` (`UUID`, PK): Document ID.
-  - `user_id` (`UUID`, NOT NULL, INDEX, FK → `users.id` `ON DELETE CASCADE`): Uploader.
-  - `financial_account_id` (`UUID`, NULLABLE, INDEX, FK → `financial_accounts.id` `ON DELETE SET NULL`): Optional target account.
-  - `file_name` (`VARCHAR(255)`, NOT NULL): Original filename.
-  - `file_type` (`VARCHAR(50)`, NOT NULL): MIME type or extension.
+  - `user_id` (`UUID`, NOT NULL, INDEX, FK → `users.id` `ON DELETE CASCADE`): Uploader identity.
+  - `financial_account_id` (`UUID`, NULLABLE, INDEX, FK → `financial_accounts.id` `ON DELETE SET NULL`): Optional linked financial account.
+  - `original_filename` (`VARCHAR(255)`, NOT NULL): Uploaded file name.
+  - `document_type` (`VARCHAR(50)`, NOT NULL, default `'bank_statement'`): Document classification (`bank_statement`, `credit_card_statement`, `csv_export`, `pdf_statement`).
+  - `mime_type` (`VARCHAR(100)`, NOT NULL): Content type e.g., `application/pdf`, `text/csv`.
   - `file_size` (`BIGINT`, NOT NULL): Size in bytes.
-  - `storage_path` (`VARCHAR(500)`, NOT NULL): Storage reference / filesystem path.
-  - `processing_status` (`VARCHAR(50)`, NOT NULL, default `'uploaded'`, INDEX): Ingestion pipeline state (`uploaded`, `processing`, `processed`, `failed`).
+  - `file_hash` (`VARCHAR(64)`, NULLABLE, INDEX): SHA-256 hash for future duplicate document detection.
+  - `storage_reference` (`VARCHAR(500)`, NOT NULL): Safe internal file storage path / S3 key. Never exposed directly in API outputs.
+  - `processing_status` (`VARCHAR(50)`, NOT NULL, default `'uploaded'`, INDEX): Ingestion state (`uploaded`, `processing`, `processed`, `failed`).
+  - `processing_error` (`TEXT`, NULLABLE): Error message if processing failed.
+  - `statement_start_date` (`DATE`, NULLABLE): Statement period start date.
+  - `statement_end_date` (`DATE`, NULLABLE): Statement period end date.
+  - `metadata_json` (`JSONB`, NULLABLE): Custom document metadata.
   - `uploaded_at` (`TIMESTAMPTZ`, NOT NULL, default `now()`).
   - `processed_at` (`TIMESTAMPTZ`, NULLABLE): Completion timestamp.
+  - `created_at` / `updated_at` (`TIMESTAMPTZ`, NOT NULL, default `now()`).
 
 ---
 
@@ -230,6 +270,9 @@ erDiagram
 ### Monetary Precision
 - **Never use floating-point types (`FLOAT`, `REAL`, `DOUBLE PRECISION`) for money**: Floating-point representations introduce binary rounding inaccuracies (e.g. `100.10` becomes `100.09999999999999`).
 - **PostgreSQL `NUMERIC(18, 4)` mapped to Python `decimal.Decimal`**: Preserves up to 14 integer digits and 4 fractional decimal places (supporting fractional cents and cryptocurrency precision where relevant).
+
+### Authoritative Ledger vs Cached Balances
+- `current_balance` is **NOT** stored as an authoritative column on `financial_accounts`. Transactions remain the ultimate source of truth for all calculations and balance derivations.
 
 ### Primary Keys & UUIDs
 - UUID v4 (`sa.Uuid(as_uuid=True)`) prevents sequential enumeration attacks, enables distributed or client-side ID generation, and obscures internal business volume from external observers.
@@ -240,7 +283,8 @@ erDiagram
 
 ### Referential Integrity & `ON DELETE` Behaviors
 - **`ON DELETE CASCADE`**:
-  - `users` → `user_profiles`, `sessions`, `oauth_accounts`, `financial_accounts`, `financial_documents`.
+  - `users` → `user_profiles`, `sessions`, `oauth_accounts`, `financial_accounts`, `transactions`, `financial_documents`.
   - `financial_accounts` → `transactions`: Deleting an account removes its ledger entries cleanly, ensuring no orphaned transactions exist.
 - **`ON DELETE SET NULL`**:
   - `financial_accounts` → `financial_documents`: If an individual account is closed or deleted, uploaded financial statements remain preserved for the user's overall financial history and audit trail.
+

@@ -59,5 +59,5 @@ class User(Base):
         "FinancialAccount", back_populates="user", cascade="all, delete-orphan"
     )
     financial_documents: Mapped[List["FinancialDocument"]] = relationship(
-        "FinancialDocument", back_populates="user", cascade="all, delete-orphan"
+        "FinancialDocument", back_populates="user", cascade="all, delete-orphan", overlaps="documents,financial_account"
     )

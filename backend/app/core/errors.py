@@ -43,9 +43,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-        # Log the real error for developers; return a safe message to clients
+        # Log full traceback internally for operations/devs; return clean, safe message to clients
         logger.exception("Unhandled exception: %s", exc)
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error."},
         )
+

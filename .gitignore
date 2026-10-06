@@ -45,3 +45,13 @@ htmlcov/
 
 # ---- OS ----
 *.log
+
+# Private financial files
+backend/cookies.txt
+backend/uploads/
+test_auth_output.txt
+
+# Private financial files
+backend/cookies.txt
+backend/uploads/
+test_auth_output.txt

@@ -1,10 +1,17 @@
-"""Services package.
+"""Services package."""
 
-Future phases will add business-logic services here, for example:
-- Financial calculation engine
-- Transaction processing
-- AI tool orchestration
-- Scenario simulation
+from app.services.auth_service import (
+    authenticate_user,
+    create_session,
+    register_user,
+    revoke_session,
+    validate_session,
+)
 
-Services live outside the API route layer.
-"""
+__all__ = [
+    "authenticate_user",
+    "create_session",
+    "register_user",
+    "revoke_session",
+    "validate_session",
+]
