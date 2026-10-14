@@ -9,6 +9,7 @@ import {
   type Transaction,
   type FinancialInsight,
 } from "../api/financial";
+import ProactiveInsightsCard from "./ProactiveInsightsCard";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -100,6 +101,9 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      {/* ── Proactive Financial Intelligence ── */}
+      <ProactiveInsightsCard />
 
       {/* ── Accounts ── */}
       <section className="card" id="dashboard-accounts">

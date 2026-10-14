@@ -11,6 +11,7 @@ from app.api.conversations import router as conversations_router  # Phase 17
 from app.api.financial import router as financial_router
 from app.api.health import router as health_router
 from app.api.oauth import router as oauth_router
+from app.api.proactive import router as proactive_router  # Phase 18
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
@@ -55,5 +56,6 @@ app.include_router(auth_router)
 app.include_router(oauth_router)
 app.include_router(financial_router)
 app.include_router(conversations_router)  # Phase 17
+app.include_router(proactive_router)      # Phase 18
 
 
