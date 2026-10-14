@@ -10,11 +10,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.profile import UserProfile
-    from app.models.session import Session
-    from app.models.oauth import OAuthAccount
+    from app.models.background_job import BackgroundJob
     from app.models.financial_account import FinancialAccount
     from app.models.financial_document import FinancialDocument
+    from app.models.oauth import OAuthAccount
+    from app.models.profile import UserProfile
+    from app.models.session import Session
 
 
 class User(Base):
@@ -61,3 +62,6 @@ class User(Base):
     financial_documents: Mapped[List["FinancialDocument"]] = relationship(
         "FinancialDocument", back_populates="user", cascade="all, delete-orphan", overlaps="documents,financial_account"
     )
+    background_jobs: Mapped[List["BackgroundJob"]] = relationship(
+        "BackgroundJob", back_populates="user", cascade="all, delete-orphan"
+    )  # Phase 19

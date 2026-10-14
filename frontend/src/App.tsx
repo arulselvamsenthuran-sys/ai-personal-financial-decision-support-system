@@ -10,6 +10,7 @@ import TransactionsPage from "./components/TransactionsPage";
 import AnalyticsPage from "./components/AnalyticsPage";
 import DecisionSupportPage from "./components/DecisionSupportPage";
 import ConversationsPage from "./components/ConversationsPage";
+import JobQueuePage from "./components/JobQueuePage";  // Phase 19
 import "./App.css";
 
 /* ------------------------------------------------------------------ */
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { path: "/analytics",        label: "Analytics",         icon: "📈" },
   { path: "/decision-support", label: "Decision Support",  icon: "🎯" },
   { path: "/conversations",     label: "AI Conversations",  icon: "💬" },
+  { path: "/jobs",             label: "Job Queue",          icon: "⚡" },  // Phase 19
 ];
 
 /* ------------------------------------------------------------------ */
@@ -135,6 +137,8 @@ function PageRouter() {
       return <DecisionSupportPage />;
     case "/conversations":
       return <ConversationsPage />;
+    case "/jobs":
+      return <JobQueuePage />;  // Phase 19
     case "/system":
       return (
         <div className="page-content" id="page-system">
