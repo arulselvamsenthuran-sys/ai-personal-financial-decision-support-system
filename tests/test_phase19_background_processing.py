@@ -816,3 +816,75 @@ async def test_job_result_not_accessible_across_users():
             assert resp.status_code == 404, "User B must not access User A's job result"
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# 9. Regression Tests for Phase 19 Endpoint Content-Type & JSON Contracts
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_regression_all_job_endpoints_return_json_content_type():
+    """Ensure all Phase 19 endpoints return application/json and valid JSON payloads."""
+    db = SessionLocal()
+    try:
+        user = make_user(db, "reg_ct")
+        async with auth_client(db, user) as c:
+            # 1. List jobs returns application/json
+            resp_list = await c.get("/api/jobs")
+            assert resp_list.status_code == 200
+            assert "application/json" in resp_list.headers.get("content-type", "")
+            data_list = resp_list.json()
+            assert "jobs" in data_list
+            assert "total_count" in data_list
+
+            # 2. Submit job returns application/json (202 Accepted)
+            resp_submit = await c.post("/api/jobs", json={"job_type": "ANALYZE_TRANSACTIONS"})
+            assert resp_submit.status_code == 202
+            assert "application/json" in resp_submit.headers.get("content-type", "")
+            data_submit = resp_submit.json()
+            job_id = data_submit["job_id"]
+            assert data_submit["status"] == "QUEUED"
+
+            # 3. Get job details returns application/json (200 OK)
+            resp_get = await c.get(f"/api/jobs/{job_id}")
+            assert resp_get.status_code == 200
+            assert "application/json" in resp_get.headers.get("content-type", "")
+            data_get = resp_get.json()
+            assert data_get["id"] == job_id
+
+            # 4. Cancel job returns application/json (200 OK)
+            resp_cancel = await c.post(f"/api/jobs/{job_id}/cancel", json={})
+            assert resp_cancel.status_code == 200
+            assert "application/json" in resp_cancel.headers.get("content-type", "")
+            data_cancel = resp_cancel.json()
+            assert data_cancel["status"] == "CANCELLED"
+    finally:
+        db.close()
+
+
+@pytest.mark.anyio
+async def test_regression_unauthenticated_api_jobs_returns_json_not_html():
+    """Unauthenticated calls to /api/jobs must return 401 with application/json (not HTML)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/api/jobs")
+        assert resp.status_code == 401
+        assert "application/json" in resp.headers.get("content-type", "")
+        body = resp.json()
+        assert "detail" in body
+
+
+@pytest.mark.anyio
+async def test_regression_not_found_job_returns_json_not_html():
+    """Requesting a nonexistent job must return 404 with application/json (not HTML)."""
+    db = SessionLocal()
+    try:
+        user = make_user(db, "reg_404")
+        async with auth_client(db, user) as c:
+            resp = await c.get(f"/api/jobs/{uuid.uuid4()}")
+            assert resp.status_code == 404
+            assert "application/json" in resp.headers.get("content-type", "")
+            body = resp.json()
+            assert body.get("detail") == "Job not found."
+    finally:
+        db.close()
+

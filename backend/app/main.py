@@ -12,12 +12,14 @@ from app.api.background_jobs import router as background_jobs_router  # Phase 19
 from app.api.conversations import router as conversations_router  # Phase 17
 from app.api.financial import router as financial_router
 from app.api.health import router as health_router
+from app.api.monitoring import router as monitoring_router  # Phase 20
 from app.api.oauth import router as oauth_router
 from app.api.proactive import router as proactive_router  # Phase 18
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
 from app.services.background_jobs import worker_loop  # Phase 19
+from app.services.monitoring_service import scheduler_loop  # Phase 20
 
 setup_logging()
 logger = get_logger(__name__)
@@ -33,13 +35,18 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     worker_task = asyncio.create_task(worker_loop())
     logger.info("Background job worker task started.")
 
+    # Phase 20: Start the recurring monitoring scheduler
+    scheduler_task = asyncio.create_task(scheduler_loop())
+    logger.info("Monitoring scheduler task started.")
+
     yield
 
-    # Phase 19: Gracefully cancel the worker on shutdown
+    # Gracefully cancel background tasks on shutdown
     worker_task.cancel()
+    scheduler_task.cancel()
     try:
-        await worker_task
-    except asyncio.CancelledError:
+        await asyncio.gather(worker_task, scheduler_task, return_exceptions=True)
+    except Exception:
         pass
     logger.info("Shutting down %s", settings.app_name)
 
@@ -58,9 +65,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
 
 # ---- Error handlers ----
 register_exception_handlers(app)
@@ -73,5 +81,7 @@ app.include_router(financial_router)
 app.include_router(conversations_router)  # Phase 17
 app.include_router(proactive_router)      # Phase 18
 app.include_router(background_jobs_router)  # Phase 19
+app.include_router(monitoring_router)     # Phase 20
+
 
 

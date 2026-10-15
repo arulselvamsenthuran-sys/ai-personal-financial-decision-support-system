@@ -136,11 +136,31 @@ def _handle_generate_insights(db: Session, job: BackgroundJob) -> dict[str, Any]
         db=db, user_id=job.user_id
     )
     update_progress(db, job, 80, "Packaging results…")
+
+    insights_summary = [
+        {
+            "id": ins.id,
+            "insight_type": ins.insight_type,
+            "severity": ins.severity,
+            "title": ins.title,
+            "description": ins.description,
+            "currency": ins.currency,
+            "metric": ins.evidence.metric,
+            "change_amount": float(ins.evidence.change_amount) if ins.evidence.change_amount is not None else 0.0,
+            "change_percent": float(ins.evidence.change_percent) if ins.evidence.change_percent is not None else None,
+            "confidence": ins.confidence,
+        }
+        for ins in result.insights
+    ]
+
     return {
         "insights_generated": result.total_count,
         "data_sufficient": result.data_sufficient,
+        "data_sufficiency_reason": result.data_sufficiency_reason,
         "currencies_evaluated": result.currencies_evaluated,
+        "insights_summary": insights_summary,
     }
+
 
 
 def _handle_document_reprocess(db: Session, job: BackgroundJob) -> dict[str, Any]:
@@ -292,6 +312,14 @@ async def _execute_job(job_id: uuid.UUID) -> None:
         db.commit()
         logger.info("Job %s completed with status %s.", job_id, job.status)
 
+        # Phase 20: Completion notification hook for financial analysis jobs
+        if job.status == "COMPLETED" and job.job_type == "GENERATE_INSIGHTS":
+            try:
+                from app.services.monitoring_service import monitoring_service
+                monitoring_service.handle_job_completion(db, job)
+            except Exception:
+                logger.exception("Failed to emit completion notification for job %s", job_id)
+
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)
         try:
@@ -301,6 +329,14 @@ async def _execute_job(job_id: uuid.UUID) -> None:
                 job.completed_at = datetime.now(timezone.utc)
                 job.error_message = str(exc)[:2000]
                 db.commit()
+
+                # Phase 20: Failure notification hook
+                if job.job_type == "GENERATE_INSIGHTS":
+                    try:
+                        from app.services.monitoring_service import monitoring_service
+                        monitoring_service.handle_job_failure(db, job)
+                    except Exception:
+                        logger.exception("Failed to emit failure notification for job %s", job_id)
         except Exception:
             logger.exception("Failed to persist FAILED status for job %s.", job_id)
     finally:

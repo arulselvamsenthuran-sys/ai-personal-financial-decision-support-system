@@ -11,6 +11,9 @@ import AnalyticsPage from "./components/AnalyticsPage";
 import DecisionSupportPage from "./components/DecisionSupportPage";
 import ConversationsPage from "./components/ConversationsPage";
 import JobQueuePage from "./components/JobQueuePage";  // Phase 19
+import SchedulingPage from "./components/SchedulingPage";  // Phase 20
+import NotificationsPage from "./components/NotificationsPage";  // Phase 20
+import { getUnreadCount } from "./api/monitoring";
 import "./App.css";
 
 /* ------------------------------------------------------------------ */
@@ -46,6 +49,8 @@ const NAV_ITEMS = [
   { path: "/decision-support", label: "Decision Support",  icon: "🎯" },
   { path: "/conversations",     label: "AI Conversations",  icon: "💬" },
   { path: "/jobs",             label: "Job Queue",          icon: "⚡" },  // Phase 19
+  { path: "/schedules",        label: "Schedules",          icon: "⏰" },  // Phase 20
+  { path: "/notifications",    label: "Notifications",      icon: "🔔" },  // Phase 20
 ];
 
 /* ------------------------------------------------------------------ */
@@ -54,6 +59,28 @@ const NAV_ITEMS = [
 
 function HeaderNav() {
   const { user, isAuthenticated, logout } = useAuth();
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let active = true;
+    const checkUnread = async () => {
+      try {
+        const res = await getUnreadCount();
+        if (active) setUnreadCount(res.unread_count);
+      } catch {
+        // Silently ignore background polling errors
+      }
+    };
+
+    checkUnread();
+    const interval = setInterval(checkUnread, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated]);
 
   return (
     <header className="app-header">
@@ -66,7 +93,39 @@ function HeaderNav() {
         <span className="logo__icon">◈</span>
         <span className="logo__text">Finance Support</span>
       </div>
-      <div className="header-actions">
+      <div className="header-actions" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        {isAuthenticated && (
+          <button
+            className="btn btn--small btn--secondary notification-bell-btn"
+            id="btn-header-notifications"
+            onClick={() => navigate("/notifications")}
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.4rem 0.75rem",
+            }}
+          >
+            <span>🔔</span>
+            {unreadCount > 0 && (
+              <span
+                className="notification-pill"
+                style={{
+                  background: "#ef4444",
+                  color: "white",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  borderRadius: "999px",
+                  padding: "0.1rem 0.45rem",
+                  lineHeight: 1.2,
+                }}
+              >
+                {unreadCount}
+              </span>
+            )}
+          </button>
+        )}
         {isAuthenticated && user && (
           <span className="user-badge" id="user-badge-email">
             {user.email}
@@ -139,6 +198,10 @@ function PageRouter() {
       return <ConversationsPage />;
     case "/jobs":
       return <JobQueuePage />;  // Phase 19
+    case "/schedules":
+      return <SchedulingPage />;  // Phase 20
+    case "/notifications":
+      return <NotificationsPage />;  // Phase 20
     case "/system":
       return (
         <div className="page-content" id="page-system">
@@ -158,6 +221,7 @@ function PageRouter() {
       );
   }
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Main Layout                                                        */

@@ -4,7 +4,9 @@
  * All requests require session authentication (cookie-based).
  */
 
-const API_BASE = "/api/jobs";
+import { API_BASE_URL } from "../config";
+
+const API_BASE = `${API_BASE_URL}/api/jobs`;
 
 export type JobType =
   | "ANALYZE_TRANSACTIONS"
@@ -55,6 +57,48 @@ export interface JobCancelResponse {
   message: string;
 }
 
+/**
+ * Helper to safely process responses, checking Content-Type and status code
+ * to prevent exposing 'Unexpected token <' HTML parsing errors.
+ */
+async function handleResponse<T>(resp: Response, fallbackAction: string): Promise<T> {
+  const contentType = resp.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json");
+
+  if (resp.status === 401) {
+    throw new Error("Session expired — please log in again.");
+  }
+
+  if (!resp.ok) {
+    if (isJson) {
+      try {
+        const err = await resp.json();
+        throw new Error(err.detail ?? `${fallbackAction} failed (${resp.status})`);
+      } catch (e: any) {
+        if (e.message && !e.message.includes("Unexpected token")) {
+          throw e;
+        }
+        throw new Error(`${fallbackAction} failed (${resp.status})`);
+      }
+    } else {
+      if (resp.status === 404) {
+        throw new Error("Job endpoint not found (404). Please ensure the backend server is running.");
+      }
+      throw new Error(`${fallbackAction} failed (${resp.status}): Unexpected response format`);
+    }
+  }
+
+  if (!isJson) {
+    throw new Error("Server returned an unexpected non-JSON response.");
+  }
+
+  try {
+    return (await resp.json()) as T;
+  } catch {
+    throw new Error("Failed to parse JSON response from server.");
+  }
+}
+
 /** Submit a new background job. */
 export async function submitJob(
   jobType: JobType,
@@ -66,11 +110,7 @@ export async function submitJob(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_type: jobType, parameters }),
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail ?? `Submit failed: ${resp.status}`);
-  }
-  return resp.json();
+  return handleResponse<JobSubmitResponse>(resp, "Submit job");
 }
 
 /** List all jobs for the authenticated user. */
@@ -81,11 +121,7 @@ export async function listJobs(
   const resp = await fetch(`${API_BASE}${params}`, {
     credentials: "include",
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail ?? `List jobs failed: ${resp.status}`);
-  }
-  return resp.json();
+  return handleResponse<JobListResponse>(resp, "List jobs");
 }
 
 /** Get a specific job by ID. */
@@ -93,11 +129,7 @@ export async function getJob(jobId: string): Promise<BackgroundJob> {
   const resp = await fetch(`${API_BASE}/${jobId}`, {
     credentials: "include",
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail ?? `Get job failed: ${resp.status}`);
-  }
-  return resp.json();
+  return handleResponse<BackgroundJob>(resp, "Get job");
 }
 
 /** Cancel a queued or running job. */
@@ -108,9 +140,5 @@ export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail ?? `Cancel failed: ${resp.status}`);
-  }
-  return resp.json();
+  return handleResponse<JobCancelResponse>(resp, "Cancel job");
 }

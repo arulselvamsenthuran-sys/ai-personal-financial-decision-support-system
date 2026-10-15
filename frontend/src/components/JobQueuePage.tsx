@@ -78,10 +78,6 @@ function formatTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function truncate(s: string, n: number) {
-  return s.length > n ? s.slice(0, n) + "…" : s;
-}
-
 /* ------------------------------------------------------------------ */
 /* Progress bar                                                         */
 /* ------------------------------------------------------------------ */
@@ -534,7 +530,7 @@ export default function JobQueuePage() {
       setData(result);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -557,7 +553,7 @@ export default function JobQueuePage() {
       showToast(`✅ Job submitted! ID: ${res.job_id.slice(0, 8)}…`);
       await fetchJobs();
     } catch (e) {
-      showToast(`❌ ${e}`, "error");
+      showToast(`❌ ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setSubmitting(false);
     }
@@ -570,7 +566,7 @@ export default function JobQueuePage() {
       showToast(`🚫 Job cancelled.`);
       await fetchJobs();
     } catch (e) {
-      showToast(`❌ ${e}`, "error");
+      showToast(`❌ ${e instanceof Error ? e.message : String(e)}`, "error");
     } finally {
       setCancellingIds((prev) => {
         const next = new Set(prev);

@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from app.models.background_job import BackgroundJob
     from app.models.financial_account import FinancialAccount
     from app.models.financial_document import FinancialDocument
+    from app.models.monitoring_schedule import MonitoringSchedule  # Phase 20
+    from app.models.notification import Notification  # Phase 20
     from app.models.oauth import OAuthAccount
     from app.models.profile import UserProfile
     from app.models.session import Session
@@ -65,3 +67,9 @@ class User(Base):
     background_jobs: Mapped[List["BackgroundJob"]] = relationship(
         "BackgroundJob", back_populates="user", cascade="all, delete-orphan"
     )  # Phase 19
+    monitoring_schedules: Mapped[List["MonitoringSchedule"]] = relationship(
+        "MonitoringSchedule", back_populates="user", cascade="all, delete-orphan"
+    )  # Phase 20
+    notifications: Mapped[List["Notification"]] = relationship(
+        "Notification", back_populates="user", cascade="all, delete-orphan"
+    )  # Phase 20
