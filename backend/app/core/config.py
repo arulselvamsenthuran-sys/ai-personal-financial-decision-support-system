@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # ---- Application ----
     app_name: str = "Finance Support API"
     debug: bool = False
+    environment: str = "development"  # e.g. "production", "staging", "test"
+
+    # ---- Logging (Phase 22) ----
+    log_level: str = "INFO"          # DEBUG, INFO, WARNING, ERROR
+    log_format: str = "json"         # "json" or "text" (json recommended for production)
 
     # ---- Database ----
     database_url: str = "postgresql+psycopg://findev:findev_local_password@localhost:5432/finance_support"

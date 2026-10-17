@@ -79,6 +79,47 @@ class InsightService:
     # Public: generate insights
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _get_insight_key(insight: FinancialInsight) -> tuple:
+        """Construct a deterministic identity key for a financial observation.
+
+        Equivalent observations match on:
+        - user_id
+        - insight_type
+        - currency (normalized uppercase)
+        - period_start (separates distinct reporting horizons, e.g. 1m vs 3m vs 6m)
+        - observation discriminator:
+            - category for category-based insights (HIGH_EXPENSE_CATEGORY, EXPENSE_INCREASE)
+            - transaction_id for single-transaction insights (LARGE_TRANSACTION)
+            - merchant for recurring pattern insights (RECURRING_EXPENSE_DETECTED)
+            - fallback to normalized title if metadata discriminator is absent
+
+        Note: period_end is intentionally omitted from the key because rolling
+        periods (e.g. 'last_3_months') compute start_date as the 1st of n months ago
+        and end_date as rolling date.today(). Including rolling period_end would cause
+        the same ongoing monthly observation generated across consecutive days to be
+        treated as distinct records. When updating in place, period_end is updated.
+        """
+        meta = insight.metadata_json or {}
+        if "category" in meta and meta["category"] is not None:
+            discriminator = f"category:{str(meta['category']).strip().lower()}"
+        elif "transaction_id" in meta and meta["transaction_id"] is not None:
+            discriminator = f"tx:{str(meta['transaction_id']).strip().lower()}"
+        elif "merchant" in meta and meta["merchant"] is not None:
+            discriminator = f"merchant:{str(meta['merchant']).strip().lower()}"
+        else:
+            discriminator = f"title:{str(insight.title or '').strip().lower()}"
+
+        ccy = str(insight.currency).strip().upper() if insight.currency else None
+
+        return (
+            insight.user_id,
+            insight.insight_type,
+            ccy,
+            insight.period_start,
+            discriminator,
+        )
+
     def generate_summary_insights(
         self,
         db: Session,
@@ -86,34 +127,69 @@ class InsightService:
         start_date: date,
         end_date: date,
     ) -> List[FinancialInsight]:
-        """Run all insight generators for the period and persist results.
+        """Run all insight generators for the period and persist results idempotently.
 
-        Idempotent per call — does NOT deduplicate across calls;
-        callers should use get_insights() to retrieve existing insights.
+        If an equivalent observation already exists for this user and period,
+        its values (title, description, severity, metric_value, metadata_json, period_end)
+        are updated in place, preventing duplicate rows across repeated calls.
         """
-        insights: List[FinancialInsight] = []
+        generated_insights: List[FinancialInsight] = []
 
-        insights.extend(
+        generated_insights.extend(
             self._generate_cash_flow_insights(db, user_id, start_date, end_date)
         )
-        insights.extend(
+        generated_insights.extend(
             self._generate_high_category_insights(db, user_id, start_date, end_date)
         )
-        insights.extend(
+        generated_insights.extend(
             self._generate_large_transaction_insights(db, user_id, start_date, end_date)
         )
-        insights.extend(
+        generated_insights.extend(
             self._generate_recurring_insights(db, user_id)
         )
-        insights.extend(
+        generated_insights.extend(
             self._generate_spending_change_insights(db, user_id, start_date, end_date)
         )
 
-        for insight in insights:
-            db.add(insight)
-        db.flush()
+        if not generated_insights:
+            return []
 
-        return insights
+        # Load existing insights for this user
+        existing_records = (
+            db.query(FinancialInsight)
+            .filter(FinancialInsight.user_id == user_id)
+            .order_by(FinancialInsight.created_at.desc())
+            .all()
+        )
+
+        existing_by_key: Dict[tuple, FinancialInsight] = {}
+        for rec in existing_records:
+            k = self._get_insight_key(rec)
+            if k not in existing_by_key:
+                existing_by_key[k] = rec
+
+        result_insights: List[FinancialInsight] = []
+        from datetime import datetime, timezone
+
+        for new_ins in generated_insights:
+            key = self._get_insight_key(new_ins)
+            if key in existing_by_key:
+                existing = existing_by_key[key]
+                existing.title = new_ins.title
+                existing.description = new_ins.description
+                existing.severity = new_ins.severity
+                existing.metric_value = new_ins.metric_value
+                existing.metadata_json = new_ins.metadata_json
+                existing.period_end = new_ins.period_end
+                existing.created_at = datetime.now(timezone.utc)
+                result_insights.append(existing)
+            else:
+                db.add(new_ins)
+                existing_by_key[key] = new_ins
+                result_insights.append(new_ins)
+
+        db.flush()
+        return result_insights
 
     def get_insights(
         self,
@@ -122,7 +198,11 @@ class InsightService:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> List[FinancialInsight]:
-        """Return stored insights for the user, optionally filtered by period."""
+        """Return stored insights for the user, optionally filtered by period.
+
+        Deduplicates equivalent observations, returning the most recent record
+        per observation identity key to safely filter any historical duplicate rows.
+        """
         q = (
             db.query(FinancialInsight)
             .filter(FinancialInsight.user_id == user_id)
@@ -137,7 +217,17 @@ class InsightService:
                 (FinancialInsight.period_end <= end_date)
                 | FinancialInsight.period_end.is_(None)
             )
-        return q.order_by(FinancialInsight.created_at.desc()).all()
+        all_records = q.order_by(FinancialInsight.created_at.desc()).all()
+
+        seen_keys: set = set()
+        deduped: List[FinancialInsight] = []
+        for r in all_records:
+            k = self._get_insight_key(r)
+            if k not in seen_keys:
+                seen_keys.add(k)
+                deduped.append(r)
+
+        return deduped
 
     # ------------------------------------------------------------------
     # Private: individual insight generators

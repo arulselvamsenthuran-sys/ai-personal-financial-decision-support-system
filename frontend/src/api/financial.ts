@@ -232,6 +232,7 @@ export interface FinancialInsight {
   currency: string | null;
   period_start: string | null;
   period_end: string | null;
+  metadata_json?: Record<string, any> | null;
   created_at: string;
 }
 

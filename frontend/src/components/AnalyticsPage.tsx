@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   fetchAnalyticsSummary,
   fetchAnalyticsMonthly,
@@ -52,9 +52,10 @@ export default function AnalyticsPage() {
   const [recurring, setRecurring] = useState<RecurringTransactionItem[]>([]);
   const [insights, setInsights] = useState<FinancialInsight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingInsights, setRefreshingInsights] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(p: string) {
+  async function load(p: string, generate: boolean = false) {
     setLoading(true);
     setError(null);
     try {
@@ -63,7 +64,7 @@ export default function AnalyticsPage() {
         fetchAnalyticsMonthly(p).then((r) => r.monthly_data),
         fetchAnalyticsCategories(p).then((r) => r.categories),
         fetchAnalyticsRecurring().then((r) => r.detected_patterns),
-        fetchInsights(p, true).then((r) => r.insights),
+        fetchInsights(p, generate).then((r) => r.insights),
       ]);
       setSummary(sum);
       setMonthly(mon);
@@ -77,7 +78,38 @@ export default function AnalyticsPage() {
     }
   }
 
-  useEffect(() => { load(period); }, [period]);
+  useEffect(() => { load(period, false); }, [period]);
+
+  async function handleRefreshInsights() {
+    setRefreshingInsights(true);
+    try {
+      const res = await fetchInsights(period, true);
+      setInsights(res.insights);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to refresh insights");
+    } finally {
+      setRefreshingInsights(false);
+    }
+  }
+
+  const dedupedInsights = useMemo(() => {
+    const seen = new Set<string>();
+    return insights.filter((ins) => {
+      const meta = (ins.metadata_json || {}) as Record<string, any>;
+      const disc = meta.category
+        ? `cat:${String(meta.category).trim().toLowerCase()}`
+        : meta.transaction_id
+        ? `tx:${String(meta.transaction_id).trim().toLowerCase()}`
+        : meta.merchant
+        ? `mch:${String(meta.merchant).trim().toLowerCase()}`
+        : `title:${String(ins.title || '').trim().toLowerCase()}`;
+      const ccy = ins.currency ? String(ins.currency).trim().toUpperCase() : "";
+      const key = `${ins.insight_type}-${ccy}-${ins.period_start || ""}-${disc}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [insights]);
 
   if (loading) return <div className="page-loading"><div className="loading-spinner" /><p>Loading analytics…</p></div>;
   if (error) return <div className="alert-box alert-box--error">{error}</div>;
@@ -181,10 +213,21 @@ export default function AnalyticsPage() {
 
       {/* ── Insights ── */}
       <section className="card" id="analytics-insights">
-        <h2 className="card__title">Financial Insights</h2>
-        {insights.length === 0 ? <p className="empty-text">No insights generated.</p> : (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h2 className="card__title" style={{ margin: 0 }}>Financial Insights</h2>
+          <button
+            id="btn-refresh-analytics-insights"
+            className="btn btn--small btn--secondary"
+            onClick={handleRefreshInsights}
+            disabled={refreshingInsights}
+            title="Generate and refresh insights for this period"
+          >
+            {refreshingInsights ? "Refreshing…" : "🔄 Refresh Insights"}
+          </button>
+        </div>
+        {dedupedInsights.length === 0 ? <p className="empty-text">No insights generated for this period. Click "Refresh Insights" to evaluate your finances.</p> : (
           <div className="insight-list">
-            {insights.map((ins) => (
+            {dedupedInsights.map((ins) => (
               <div key={ins.id} className={`insight-item severity--${ins.severity}`}>
                 <span className="insight-item__icon">{INSIGHT_ICONS[ins.insight_type] ?? "ℹ️"}</span>
                 <div className="insight-item__body">

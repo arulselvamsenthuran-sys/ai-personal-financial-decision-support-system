@@ -697,11 +697,17 @@ def test_excessive_chat_history_rejected():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_ai_rate_limiter_exceeded():
+async def test_ai_rate_limiter_exceeded(monkeypatch):
     """Exceeding AI request frequency threshold triggers 429 Too Many Requests."""
     db = SessionLocal()
     try:
         user = create_test_user(db, "ai_ratelimit")
+        create_test_account(db, user.id, "Checking", "LKR")
+
+        # Mock the provider to eliminate live API network latency and quota consumption
+        mock_provider = MockLLMProvider(custom_response="Rate limit test response.")
+        monkeypatch.setattr(ai_explanation_service, "_default_provider", mock_provider)
+
         ai_rate_limiter.reset()
 
         async with get_auth_client(db, user) as ac:
@@ -734,6 +740,7 @@ async def test_ai_rate_limiter_exceeded():
     finally:
         ai_rate_limiter.reset()
         db.close()
+
 
 
 @pytest.mark.anyio

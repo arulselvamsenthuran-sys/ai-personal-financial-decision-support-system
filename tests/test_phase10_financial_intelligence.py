@@ -744,6 +744,217 @@ def test_insight_large_transaction_generated(
 
 
 # ---------------------------------------------------------------------------
+# 13b. Idempotency & Duplicate Prevention Tests
+# ---------------------------------------------------------------------------
+
+def test_generating_insights_twice_does_not_create_duplicate_rows(
+    db: Session, user_a: User, account_a: FinancialAccount
+):
+    """Calling generate_summary_insights multiple times for the same period
+    must update existing records rather than inserting duplicate rows.
+    """
+    _make_transaction(db, user_a, account_a, date(2026, 8, 1), Decimal("50000"), "debit", "Food")
+    _make_transaction(db, user_a, account_a, date(2026, 8, 2), Decimal("20000"), "debit", "Transport")
+    db.commit()
+
+    start = date(2026, 8, 1)
+    end = date(2026, 8, 31)
+
+    # First generation
+    first_run = insight_service.generate_summary_insights(db, user_a.id, start, end)
+    db.commit()
+    count_first = (
+        db.query(FinancialInsight)
+        .filter(FinancialInsight.user_id == user_a.id)
+        .count()
+    )
+    assert count_first > 0
+
+    # Second generation for same period & data
+    second_run = insight_service.generate_summary_insights(db, user_a.id, start, end)
+    db.commit()
+    count_second = (
+        db.query(FinancialInsight)
+        .filter(FinancialInsight.user_id == user_a.id)
+        .count()
+    )
+    assert count_second == count_first, "Duplicate rows were created on second generation"
+    assert len(second_run) == len(first_run)
+
+
+def test_updated_insight_values_reflected_in_existing_record(
+    db: Session, user_a: User, account_a: FinancialAccount
+):
+    """When transactions change and insights are re-generated, the existing record
+    must be updated in place with the new metrics and descriptions.
+    """
+    _make_transaction(db, user_a, account_a, date(2026, 7, 1), Decimal("10000"), "credit")
+    _make_transaction(db, user_a, account_a, date(2026, 7, 5), Decimal("30000"), "debit", "Rent")
+    db.commit()
+
+    start = date(2026, 7, 1)
+    end = date(2026, 7, 31)
+
+    # First generation
+    insight_service.generate_summary_insights(db, user_a.id, start, end)
+    db.commit()
+
+    rent_insight_1 = (
+        db.query(FinancialInsight)
+        .filter(
+            FinancialInsight.user_id == user_a.id,
+            FinancialInsight.insight_type == "HIGH_EXPENSE_CATEGORY",
+        )
+        .one()
+    )
+    first_id = rent_insight_1.id
+    assert rent_insight_1.metric_value == Decimal("100.00")
+
+    # Add another expense in a different category so Rent's percentage changes
+    _make_transaction(db, user_a, account_a, date(2026, 7, 10), Decimal("10000"), "debit", "Food")
+    db.commit()
+
+    # Re-generate insights
+    insight_service.generate_summary_insights(db, user_a.id, start, end)
+    db.commit()
+
+    rent_insights = (
+        db.query(FinancialInsight)
+        .filter(
+            FinancialInsight.user_id == user_a.id,
+            FinancialInsight.insight_type == "HIGH_EXPENSE_CATEGORY",
+        )
+        .all()
+    )
+    assert len(rent_insights) == 1, "Expected only 1 record updated in place, no duplicates"
+    updated_insight = rent_insights[0]
+    assert updated_insight.id == first_id, "Record ID changed instead of updating in place"
+    # Rent is now 30000 / 40000 = 75.00%
+    assert updated_insight.metric_value == Decimal("75.00")
+    assert "75.0%" in updated_insight.title
+
+
+def test_insight_currency_separation(
+    db: Session, user_a: User, account_a: FinancialAccount
+):
+    """Insights for different currencies (e.g. LKR vs USD) must remain distinct records."""
+    account_usd = FinancialAccount(
+        user_id=user_a.id,
+        name="USD Account",
+        account_type="bank",
+        currency="USD",
+    )
+    db.add(account_usd)
+    db.commit()
+
+    start = date(2026, 6, 1)
+    end = date(2026, 6, 30)
+
+    # LKR expenses
+    _make_transaction(db, user_a, account_a, date(2026, 6, 2), Decimal("50000"), "debit", "Uncategorized")
+    # USD expenses
+    _make_transaction(db, user_a, account_usd, date(2026, 6, 3), Decimal("1500"), "debit", "Uncategorized")
+    db.commit()
+
+    insights = insight_service.generate_summary_insights(db, user_a.id, start, end)
+    db.commit()
+
+    hec_insights = [i for i in insights if i.insight_type == "HIGH_EXPENSE_CATEGORY"]
+    currencies = {i.currency for i in hec_insights}
+    assert "LKR" in currencies
+    assert "USD" in currencies
+    assert len(hec_insights) == 2
+
+
+def test_insight_period_separation(
+    db: Session, user_a: User, account_a: FinancialAccount
+):
+    """Insights for different periods (different period_start) must remain separate records."""
+    # Month 1: May 2026
+    _make_transaction(db, user_a, account_a, date(2026, 5, 2), Decimal("40000"), "debit", "Rent")
+    # Month 2: June 2026
+    _make_transaction(db, user_a, account_a, date(2026, 6, 2), Decimal("45000"), "debit", "Rent")
+    db.commit()
+
+    insight_service.generate_summary_insights(db, user_a.id, date(2026, 5, 1), date(2026, 5, 31))
+    insight_service.generate_summary_insights(db, user_a.id, date(2026, 6, 1), date(2026, 6, 30))
+    db.commit()
+
+    records = (
+        db.query(FinancialInsight)
+        .filter(
+            FinancialInsight.user_id == user_a.id,
+            FinancialInsight.insight_type == "HIGH_EXPENSE_CATEGORY",
+        )
+        .all()
+    )
+    assert len(records) == 2
+    period_starts = {r.period_start for r in records}
+    assert period_starts == {date(2026, 5, 1), date(2026, 6, 1)}
+
+
+def test_insight_multi_user_isolation(
+    db: Session,
+    user_a: User,
+    account_a: FinancialAccount,
+    user_b: User,
+    account_b: FinancialAccount,
+):
+    """Generating insights for user A must never affect or collide with user B."""
+    start = date(2026, 4, 1)
+    end = date(2026, 4, 30)
+
+    _make_transaction(db, user_a, account_a, date(2026, 4, 5), Decimal("50000"), "debit", "Rent")
+    _make_transaction(db, user_b, account_b, date(2026, 4, 5), Decimal("2000"), "debit", "Rent")
+    db.commit()
+
+    insight_service.generate_summary_insights(db, user_a.id, start, end)
+    insight_service.generate_summary_insights(db, user_b.id, start, end)
+    db.commit()
+
+    insights_a = insight_service.get_insights(db, user_a.id, start, end)
+    insights_b = insight_service.get_insights(db, user_b.id, start, end)
+
+    assert all(i.user_id == user_a.id for i in insights_a)
+    assert all(i.user_id == user_b.id for i in insights_b)
+    assert len(insights_a) >= 1
+    assert len(insights_b) >= 1
+
+
+def test_get_insights_deduplicates_historical_duplicate_rows(
+    db: Session, user_a: User
+):
+    """get_insights() must return only the latest record when legacy duplicate rows exist."""
+    from datetime import datetime, timezone
+
+    # Manually insert 3 legacy duplicate rows representing the same observation across different days
+    for day in [5, 6, 7]:
+        db.add(
+            FinancialInsight(
+                user_id=user_a.id,
+                insight_type="HIGH_EXPENSE_CATEGORY",
+                severity="WARNING",
+                title=f"'Rent' represents 100.0% of expenses (LKR) - day {day}",
+                description="Legacy duplicate description",
+                metric_value=Decimal("100.00"),
+                currency="LKR",
+                period_start=date(2026, 1, 1),
+                period_end=date(2026, 1, day),
+                metadata_json={"category": "Rent"},
+                created_at=datetime(2026, 1, day, 12, 0, 0, tzinfo=timezone.utc),
+            )
+        )
+    db.commit()
+
+    retrieved = insight_service.get_insights(db, user_a.id, date(2026, 1, 1), date(2026, 1, 31))
+    rent_insights = [i for i in retrieved if i.insight_type == "HIGH_EXPENSE_CATEGORY"]
+
+    assert len(rent_insights) == 1, f"Expected 1 deduplicated insight, got {len(rent_insights)}"
+    # Most recent record (day 7) should be returned
+    assert "day 7" in rent_insights[0].title
+
+
+# ---------------------------------------------------------------------------
 # 14. Decimal precision
 # ---------------------------------------------------------------------------
 

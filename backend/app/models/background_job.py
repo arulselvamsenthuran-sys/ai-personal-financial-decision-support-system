@@ -82,6 +82,11 @@ class BackgroundJob(Base):
     # Input parameters (caller-supplied, e.g. {"account_id": "..."})
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
+    # Deduplication hash for active job uniqueness (SHA-256 of normalized parameters)
+    dedup_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+
     # Outputs
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

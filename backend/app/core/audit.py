@@ -50,4 +50,8 @@ def audit_log(
         "details": safe_details,
     }
 
-    logger.info("AUDIT_EVENT: %s", event)
+    logger.info(
+        "AUDIT_EVENT: %s",
+        event,
+        extra={"event": f"audit.{event_type.lower()}"},
+    )

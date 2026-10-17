@@ -711,14 +711,34 @@ async def execute_due_schedules_once() -> int:
 
 async def scheduler_loop(poll_interval: int = 60) -> None:
     """Continuous background scheduler polling for due monitoring schedules."""
-    logger.info("Monitoring scheduler started (poll interval: %ds).", poll_interval)
+    from app.core.observability import scheduler_metrics
+    logger.info(
+        "Monitoring scheduler started (poll interval: %ds).",
+        poll_interval,
+        extra={"event": "scheduler.run.started"},
+    )
     while True:
         try:
-            await execute_due_schedules_once()
+            scheduler_metrics.record_poll()
+            count = await execute_due_schedules_once()
+            scheduler_metrics.record_cycle_success(jobs_enqueued=count)
+            logger.info(
+                "Scheduler cycle completed: %d schedule(s) triggered.",
+                count,
+                extra={"event": "scheduler.run.completed", "schedules_triggered": count},
+            )
             await asyncio.sleep(poll_interval)
         except asyncio.CancelledError:
-            logger.info("Monitoring scheduler shutting down.")
+            logger.info(
+                "Monitoring scheduler shutting down.",
+                extra={"event": "scheduler.run.shutdown"},
+            )
             break
         except Exception:
-            logger.exception("Unexpected error in monitoring scheduler loop — continuing.")
+            from app.core.observability import scheduler_metrics as sm
+            sm.record_cycle_failure(error_category="unexpected_exception")
+            logger.exception(
+                "Unexpected error in monitoring scheduler loop — continuing.",
+                extra={"event": "scheduler.run.failed"},
+            )
             await asyncio.sleep(poll_interval)

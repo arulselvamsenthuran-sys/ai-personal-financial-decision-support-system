@@ -1,14 +1,18 @@
-"""Centralised API error handling.
+"""Phase 22 — Centralised API error handling.
 
-Provides a clean foundation that future phases can extend with:
-- Request / correlation IDs
-- Structured logging of errors
-- Safe error responses with consistent shape
+Changes from Phase 21:
+- Unhandled 500 errors now include the correlation request_id in the response
+  so operations can cross-reference the structured log entry.
+- Internal exception details, stack traces, SQL, and credentials are never
+  returned to clients.
+- AppError responses retain their existing shape.
+- Expected validation/auth/rate-limit errors are not logged as server failures.
 """
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.correlation import get_request_id
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,18 +39,40 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
-        logger.warning("AppError: %s (status=%d)", exc.message, exc.status_code)
+        logger.warning(
+            "AppError: %s (status=%d)",
+            exc.message,
+            exc.status_code,
+            extra={"event": "http.request.failed", "status_code": exc.status_code},
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.message},
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-        # Log full traceback internally for operations/devs; return clean, safe message to clients
-        logger.exception("Unhandled exception: %s", exc)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error."},
-        )
+    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Handle unexpected server errors safely.
 
+        - Logs full traceback internally (for operations/devs) with correlation ID.
+        - Returns a generic, safe message to the client — no stack traces, SQL, or secrets.
+        - Includes the request_id so clients can report it and ops can trace the log.
+        """
+        request_id = (
+            get_request_id()
+            or getattr(request.state, "request_id", None)
+            or request.headers.get("X-Request-ID")
+        )
+        logger.exception(
+            "Unhandled exception — request_id=%s: %s",
+            request_id,
+            type(exc).__name__,
+            extra={"event": "http.request.failed", "status_code": 500, "request_id": request_id},
+        )
+        body: dict = {"detail": "Internal server error."}
+        if request_id:
+            body["request_id"] = request_id
+        response = JSONResponse(status_code=500, content=body)
+        if request_id:
+            response.headers["X-Request-ID"] = request_id
+        return response

@@ -21,11 +21,14 @@ Design principles:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -33,12 +36,20 @@ from app.models.background_job import BackgroundJob
 
 logger = logging.getLogger(__name__)
 
+
+def compute_dedup_hash(parameters: dict[str, Any] | None) -> str:
+    """Compute deterministic SHA-256 hash of job parameters for deduplication."""
+    normalized = json.dumps(parameters or {}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Cancellation registry — maps job_id → asyncio.Event
 # ---------------------------------------------------------------------------
 
 _cancellation_flags: dict[uuid.UUID, asyncio.Event] = {}
 _queue: asyncio.Queue[uuid.UUID] = asyncio.Queue()
+
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +294,12 @@ async def _execute_job(job_id: uuid.UUID) -> None:
         job.progress_pct = 0
         job.progress_message = "Starting…"
         db.commit()
+        logger.info(
+            "Job started: %s (type=%s)",
+            job_id,
+            job.job_type,
+            extra={"event": "background_job.started", "job_type": job.job_type},
+        )
 
         handler = _HANDLERS.get(job.job_type)
         if handler is None:
@@ -310,7 +327,22 @@ async def _execute_job(job_id: uuid.UUID) -> None:
             job.result_payload = result
 
         db.commit()
-        logger.info("Job %s completed with status %s.", job_id, job.status)
+        logger.info(
+            "Job %s completed with status %s.",
+            job_id,
+            job.status,
+            extra={"event": f"background_job.{job.status.lower()}", "job_type": job.job_type},
+        )
+
+        # Phase 22: Record terminal status in observability counters
+        try:
+            from app.core.observability import worker_metrics
+            if job.status == "COMPLETED":
+                worker_metrics.record_completed()
+            elif job.status == "CANCELLED":
+                worker_metrics.record_cancelled()
+        except Exception:
+            pass  # Observability must never crash job processing
 
         # Phase 20: Completion notification hook for financial analysis jobs
         if job.status == "COMPLETED" and job.job_type == "GENERATE_INSIGHTS":
@@ -321,7 +353,18 @@ async def _execute_job(job_id: uuid.UUID) -> None:
                 logger.exception("Failed to emit completion notification for job %s", job_id)
 
     except Exception as exc:
-        logger.exception("Job %s failed: %s", job_id, exc)
+        logger.exception(
+            "Job %s failed: %s",
+            job_id,
+            type(exc).__name__,
+            extra={"event": "background_job.failed"},
+        )
+        # Phase 22: Record failure in observability counters
+        try:
+            from app.core.observability import worker_metrics
+            worker_metrics.record_failed(error_category=type(exc).__name__)
+        except Exception:
+            pass
         try:
             job = db.query(BackgroundJob).filter(BackgroundJob.id == job_id).first()
             if job:
@@ -344,13 +387,82 @@ async def _execute_job(job_id: uuid.UUID) -> None:
         _cancellation_flags.pop(job_id, None)
 
 
+def reconcile_orphaned_jobs(db: Session) -> dict[str, int]:
+    """Reconcile orphaned jobs on application startup.
+
+    Recovery Policy:
+    1. RUNNING jobs: Mark as FAILED because the process was interrupted mid-flight;
+       rerunning them automatically could execute duplicate partial side-effects.
+    2. QUEUED jobs: Re-enqueue into the in-process queue, deduplicating any excess
+       identical queued jobs for the same user and parameters.
+    3. Idempotent: Can be called repeatedly without corrupting state.
+    """
+    now = datetime.now(timezone.utc)
+    failed_count = 0
+    recovered_count = 0
+
+    # 1. Handle orphaned RUNNING jobs -> mark FAILED
+    running_jobs = (
+        db.query(BackgroundJob)
+        .filter(BackgroundJob.status == "RUNNING")
+        .all()
+    )
+    for job in running_jobs:
+        job.status = "FAILED"
+        job.completed_at = now
+        job.error_message = "Job execution was interrupted by server restart."
+        job.progress_message = "Interrupted by server restart."
+        failed_count += 1
+        logger.warning(
+            "Marked orphaned RUNNING job %s as FAILED on startup.", job.id
+        )
+
+    # 2. Handle orphaned QUEUED jobs -> re-enqueue
+    queued_jobs = (
+        db.query(BackgroundJob)
+        .filter(BackgroundJob.status == "QUEUED")
+        .order_by(BackgroundJob.created_at.asc())
+        .all()
+    )
+
+    seen_active: set[tuple[uuid.UUID, str, str]] = set()
+    for job in queued_jobs:
+        if not job.dedup_hash:
+            job.dedup_hash = compute_dedup_hash(job.parameters)
+
+        dedup_key = (job.user_id, job.job_type, job.dedup_hash)
+        if dedup_key in seen_active:
+            # Redundant duplicate queued job from previous runs
+            job.status = "CANCELLED"
+            job.completed_at = now
+            job.progress_message = "Superceded by newer job during restart reconciliation."
+            logger.info("Cancelled redundant queued job %s during reconciliation.", job.id)
+            continue
+
+        seen_active.add(dedup_key)
+
+        # Enqueue if not already registered in memory
+        if job.id not in _cancellation_flags:
+            _cancellation_flags[job.id] = asyncio.Event()
+            _queue.put_nowait(job.id)
+            job.progress_message = "Waiting in queue (recovered after restart)…"
+            recovered_count += 1
+            logger.info("Re-enqueued orphaned QUEUED job %s on startup.", job.id)
+
+    db.commit()
+    return {
+        "failed_running_count": failed_count,
+        "recovered_queued_count": recovered_count,
+    }
+
+
 async def worker_loop() -> None:
     """Consume jobs from the in-process queue indefinitely.
 
     Runs as a background asyncio task during application lifetime.
     Designed to be restarted by the lifespan manager if it ever raises.
     """
-    logger.info("Background job worker started.")
+    logger.info("Background job worker started.", extra={"event": "background_job.worker.started"})
     while True:
         try:
             job_id = await _queue.get()
@@ -358,7 +470,7 @@ async def worker_loop() -> None:
             await _execute_job(job_id)
             _queue.task_done()
         except asyncio.CancelledError:
-            logger.info("Background job worker shutting down.")
+            logger.info("Background job worker shutting down.", extra={"event": "background_job.worker.shutdown"})
             break
         except Exception:
             logger.exception("Unexpected error in worker loop — continuing.")
@@ -384,7 +496,31 @@ class BackgroundJobService:
         job_type: str,
         parameters: dict[str, Any] | None = None,
     ) -> BackgroundJob:
-        """Persist a new QUEUED job and enqueue it for execution."""
+        """Persist a new QUEUED job or return an existing active job if duplicate."""
+        dedup_hash = compute_dedup_hash(parameters)
+
+        # 1. Fast check for an existing active job (QUEUED or RUNNING) for this user
+        existing = (
+            db.query(BackgroundJob)
+            .filter(
+                BackgroundJob.user_id == user_id,
+                BackgroundJob.job_type == job_type,
+                BackgroundJob.dedup_hash == dedup_hash,
+                BackgroundJob.status.in_(["QUEUED", "RUNNING"]),
+            )
+            .first()
+        )
+        if existing:
+            logger.info(
+                "Active job %s already exists for user %s (type=%s, dedup_hash=%s) — returning existing job.",
+                existing.id,
+                user_id,
+                job_type,
+                dedup_hash[:8],
+            )
+            return existing
+
+        # 2. Persist new job with dedup_hash
         job = BackgroundJob(
             user_id=user_id,
             job_type=job_type,
@@ -392,17 +528,45 @@ class BackgroundJobService:
             progress_pct=0,
             progress_message="Waiting in queue…",
             parameters=parameters,
+            dedup_hash=dedup_hash,
         )
         db.add(job)
-        db.commit()
-        db.refresh(job)
+        try:
+            db.commit()
+            db.refresh(job)
+        except IntegrityError:
+            db.rollback()
+            # Concurrent insert collided on unique index ix_background_jobs_active_dedup
+            existing = (
+                db.query(BackgroundJob)
+                .filter(
+                    BackgroundJob.user_id == user_id,
+                    BackgroundJob.job_type == job_type,
+                    BackgroundJob.dedup_hash == dedup_hash,
+                    BackgroundJob.status.in_(["QUEUED", "RUNNING"]),
+                )
+                .first()
+            )
+            if existing:
+                logger.info(
+                    "Concurrent duplicate resolved for user %s (type=%s) — returning existing job %s.",
+                    user_id,
+                    job_type,
+                    existing.id,
+                )
+                return existing
+            raise
 
-        # Register cancellation flag then enqueue
+        # 3. Register cancellation flag then enqueue into in-memory queue
         _cancellation_flags[job.id] = asyncio.Event()
         _queue.put_nowait(job.id)
 
         logger.info("Submitted job %s (type=%s) for user %s.", job.id, job_type, user_id)
         return job
+
+    def reconcile_orphaned_jobs(self, db: Session) -> dict[str, int]:
+        """Delegate to reconcile_orphaned_jobs module function."""
+        return reconcile_orphaned_jobs(db)
 
     # ---------- Get ----------
 
@@ -418,6 +582,7 @@ class BackgroundJobService:
             )
             .first()
         )
+
 
     # ---------- List ----------
 
