@@ -8,6 +8,7 @@ import {
   type ChatMessage,
   type DecisionChatRequest,
 } from "../api/financial";
+import { GeminiSparkleIcon } from "./Icons";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                          */
@@ -223,8 +224,22 @@ export default function DecisionSupportPage() {
               {loading ? <><span className="btn-spinner" /> Analyzing…</> : "Analyze Scenario"}
             </button>
             {result && (
-              <button type="button" className="btn btn--accent" onClick={handleExplain} disabled={aiLoading}>
-                {aiLoading ? <><span className="btn-spinner" /> Generating AI Explanation…</> : "🤖 Get AI Explanation"}
+              <button
+                type="button"
+                className="btn btn--accent"
+                onClick={handleExplain}
+                disabled={aiLoading}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+              >
+                {aiLoading ? (
+                  <>
+                    <span className="btn-spinner" /> Generating AI Explanation…
+                  </>
+                ) : (
+                  <>
+                    <GeminiSparkleIcon size={16} /> Get AI Explanation
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -234,7 +249,10 @@ export default function DecisionSupportPage() {
       {/* ── AI Explanation ── */}
       {(aiStatus || aiLoading) && (
         <section className="card" id="decision-ai">
-          <h2 className="card__title">🤖 AI Explanation</h2>
+          <h2 className="card__title" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <GeminiSparkleIcon size={18} style={{ color: "var(--color-accent)" }} />
+            <span>AI Decision Explanation</span>
+          </h2>
           {aiLoading && <div className="page-loading"><div className="loading-spinner" /><p>Generating explanation…</p></div>}
           {aiStatus === "success" && aiExplanation ? (
             <div className="ai-result">

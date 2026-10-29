@@ -11,6 +11,7 @@ import {
   type RecurringTransactionItem,
   type FinancialInsight,
 } from "../api/financial";
+import { CalendarIcon, RefreshIcon } from "./Icons";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -118,9 +119,12 @@ export default function AnalyticsPage() {
     <div className="page-content" id="page-analytics">
       <div className="page-header-row">
         <h1 className="page-title">Analytics</h1>
-        <select className="form-input form-input--select" value={period} onChange={(e) => setPeriod(e.target.value)} id="analytics-period">
-          {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </select>
+        <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+          <CalendarIcon size={16} style={{ position: "absolute", left: "0.85rem", color: "var(--color-text-dim)", pointerEvents: "none" }} />
+          <select className="form-input form-input--select" style={{ paddingLeft: "2.3rem" }} value={period} onChange={(e) => setPeriod(e.target.value)} id="analytics-period">
+            {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* ── Summary ── */}
@@ -221,8 +225,9 @@ export default function AnalyticsPage() {
             onClick={handleRefreshInsights}
             disabled={refreshingInsights}
             title="Generate and refresh insights for this period"
+            style={{ display: "inline-flex", alignItems: "center" }}
           >
-            {refreshingInsights ? "Refreshing…" : "🔄 Refresh Insights"}
+            {refreshingInsights ? "Refreshing…" : <><RefreshIcon size={14} style={{ marginRight: "0.35rem" }} /> Refresh Insights</>}
           </button>
         </div>
         {dedupedInsights.length === 0 ? <p className="empty-text">No insights generated for this period. Click "Refresh Insights" to evaluate your finances.</p> : (

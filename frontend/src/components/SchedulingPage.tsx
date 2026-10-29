@@ -8,6 +8,7 @@ import {
   type MonitoringSchedule,
   type FrequencyType,
 } from "../api/monitoring";
+import { CalendarIcon } from "./Icons";
 
 const DAYS_OF_WEEK = [
   { value: 1, label: "Monday" },
@@ -241,7 +242,7 @@ export default function SchedulingPage() {
               >
                 <div style={{ flex: 1, minWidth: "260px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.35rem" }}>
-                    <span style={{ fontSize: "1.25rem" }}>{sched.frequency === "DAILY" ? "📅" : "🗓️"}</span>
+                    <CalendarIcon size={20} style={{ color: "var(--color-primary)" }} />
                     <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>{sched.name}</h3>
                     <span
                       style={{

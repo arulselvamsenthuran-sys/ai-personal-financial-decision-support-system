@@ -1,6 +1,11 @@
 /* Global reset — minimal, let App.css handle the design system */
-:root {
+:root,
+html[data-theme="dark"] {
   color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
 }
 
 a {

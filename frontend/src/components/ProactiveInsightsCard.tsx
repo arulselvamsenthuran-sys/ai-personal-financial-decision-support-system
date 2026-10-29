@@ -4,6 +4,7 @@ import {
   explainProactiveInsight,
   type ProactiveInsight,
 } from "../api/proactive";
+import { GeminiSparkleIcon } from "./Icons";
 
 function severityBadge(severity: string) {
   switch (severity.toUpperCase()) {
@@ -94,7 +95,10 @@ export default function ProactiveInsightsCard() {
   if (loading) {
     return (
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <h3 style={{ margin: 0, fontSize: "1.1rem" }}>⚡ Proactive Financial Intelligence</h3>
+        <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <GeminiSparkleIcon size={18} style={{ color: "var(--color-primary)" }} />
+          <span>Proactive Financial Intelligence</span>
+        </h3>
         <p className="text-muted" style={{ marginTop: "0.5rem" }}>Analyzing historical baseline data...</p>
       </div>
     );
@@ -150,9 +154,9 @@ export default function ProactiveInsightsCard() {
                 key={insight.id}
                 className="card"
                 style={{
-                  padding: "1rem",
-                  backgroundColor: "var(--bg-card-alt, #f9fafb)",
-                  border: "1px solid var(--border-color, #e5e7eb)",
+                  padding: "1.25rem",
+                  backgroundColor: "var(--color-surface-alt)",
+                  border: "1px solid var(--color-border)",
                 }}
               >
                 {/* Header */}
@@ -168,17 +172,18 @@ export default function ProactiveInsightsCard() {
                   </div>
                 </div>
 
-                <p style={{ fontSize: "0.9rem", color: "var(--text-color, #374151)", margin: "0.4rem 0 0.8rem 0" }}>
+                <p style={{ fontSize: "0.9rem", color: "var(--color-text)", margin: "0.4rem 0 0.8rem 0" }}>
                   {insight.description}
                 </p>
 
                 {/* Evidence Panel */}
                 <div
                   style={{
-                    backgroundColor: "#ffffff",
+                    backgroundColor: "var(--color-surface)",
+                    color: "var(--color-text)",
                     padding: "0.75rem 1rem",
-                    borderRadius: "6px",
-                    border: "1px solid var(--border-color, #e5e7eb)",
+                    borderRadius: "var(--radius-sm, 6px)",
+                    border: "1px solid var(--color-border)",
                     fontSize: "0.85rem",
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
@@ -196,7 +201,7 @@ export default function ProactiveInsightsCard() {
                   </div>
                   <div>
                     <span className="text-muted" style={{ display: "block", fontSize: "0.75rem" }}>Variance</span>
-                    <strong style={{ color: ev.change_amount > 0 ? (ev.metric === "monthly_expenses" ? "#dc2626" : "#059669") : (ev.metric === "monthly_expenses" ? "#059669" : "#dc2626") }}>
+                    <strong style={{ color: ev.change_amount > 0 ? (ev.metric === "monthly_expenses" ? "var(--color-danger)" : "var(--color-success)") : (ev.metric === "monthly_expenses" ? "var(--color-success)" : "var(--color-danger)") }}>
                       {ev.change_amount > 0 ? "+" : ""}{fmtMetricValue(ev.change_amount, ev.metric, insight.currency)}
                       {ev.change_percent !== null && ` (${ev.change_percent > 0 ? "+" : ""}${ev.change_percent}%)`}
                     </strong>
@@ -210,12 +215,13 @@ export default function ProactiveInsightsCard() {
                 {/* AI Explanation Toggle */}
                 <div>
                   <button
-                    className="btn btn--small btn--outline"
+                    className="btn btn--small btn--secondary"
                     onClick={() => handleExplain(insight.id)}
                     disabled={isExplaining}
-                    style={{ fontSize: "0.8rem" }}
+                    style={{ fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
                   >
-                    {isExplaining ? "Generating AI Explanation..." : explanation ? "Hide AI Explanation" : "✨ Explain with AI"}
+                    <GeminiSparkleIcon size={14} style={{ color: "var(--color-primary)" }} />
+                    <span>{isExplaining ? "Generating AI Explanation..." : explanation ? "Hide AI Explanation" : "Explain with AI"}</span>
                   </button>
 
                   {explanation && (
@@ -223,14 +229,16 @@ export default function ProactiveInsightsCard() {
                       style={{
                         marginTop: "0.75rem",
                         padding: "0.85rem 1rem",
-                        backgroundColor: "rgba(37, 99, 235, 0.05)",
-                        borderLeft: "3px solid var(--color-primary, #2563eb)",
-                        borderRadius: "4px",
+                        backgroundColor: "var(--color-accent-soft)",
+                        borderLeft: "3px solid var(--color-primary)",
+                        borderRadius: "var(--radius-xs, 4px)",
                         fontSize: "0.9rem",
+                        color: "var(--color-text)",
                       }}
                     >
-                      <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--color-primary, #2563eb)", marginBottom: "0.3rem" }}>
-                        🤖 AI Explanation (Derived from verified evidence)
+                      <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--color-accent)", marginBottom: "0.3rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <GeminiSparkleIcon size={14} />
+                        <span>AI Financial Advisory Explanation</span>
                       </div>
                       <div style={{ whiteSpace: "pre-wrap" }}>{explanation}</div>
                     </div>
