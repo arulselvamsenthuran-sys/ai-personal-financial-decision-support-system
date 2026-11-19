@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # ---- Document Upload ----
     upload_max_file_size_bytes: int = 10_485_760  # 10 MB
     upload_allowed_extensions: list[str] = [".csv", ".pdf"]
-    upload_storage_dir: str = "uploads"
+    upload_storage_dir: str = "/tmp/uploads"
 
     # ---- OAuth ----
     google_client_id: str = "google-dummy-client-id.apps.googleusercontent.com"
